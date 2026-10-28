@@ -2,7 +2,9 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { Device, Port } from '../../../packages/shared/src/index.js';
 import { api } from './api.js';
 import { Connector } from './visual/Connector.js';
-import { PortInspector } from './visual/PortInspector.js';
+import { CableOverlay } from './visual/CableOverlay.js';
+import { PortInspector, type PortSaveResult } from './visual/PortInspector.js';
+import { reorderPort, renumberPorts } from './grid/helpers.js';
 import {
   connectorNames,
   groupedDevices,
@@ -29,6 +31,7 @@ export interface EquipmentSummaryProps {
   ) => void;
   onConfigure?: (deviceId?: string, portId?: string) => void;
   onBusyChange?: (busy: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export function EquipmentSummary({
@@ -37,14 +40,43 @@ export function EquipmentSummary({
   onSnapshotChange,
   onConfigure,
   onBusyChange,
+  onDirtyChange,
 }: EquipmentSummaryProps) {
+  const cableContainer = useRef<HTMLDivElement>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const dragSource = useRef<{ portId: string; deviceId: string } | null>(null);
+  const [keyboardPosition, setKeyboardPosition] = useState<number | null>(null);
+  const orderBusy = useRef(false);
+  const [renumberDirtyIds, setRenumberDirtyIds] = useState<string[]>([]);
+  function updateRenumberDirty(id: string, dirty: boolean) {
+    setRenumberDirtyIds((previous) =>
+      dirty
+        ? previous.includes(id)
+          ? previous
+          : [...previous, id]
+        : previous.filter((item) => item !== id),
+    );
+  }
   const [state, setState] = useState<State>({ status: 'loading' });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [density, setDensity] = useState('comfortable');
   const [face, setFace] = useState<'both' | 'front' | 'rear'>('both');
   const [showConnections, setShowConnections] = useState(true);
   const [pending, setPending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [drawerBusy, setDrawerBusy] = useState(false);
+  const drawerDirty = useRef(false);
+  const drawerOpen = useRef(false);
+  const reportDirty = useEffectEvent((dirty: boolean) =>
+    onDirtyChange?.(dirty),
+  );
+  function updateDrawerDirty(dirty: boolean) {
+    drawerDirty.current = dirty;
+    onDirtyChange?.(dirty || renumberDirtyIds.length > 0);
+  }
+  useEffect(() => {
+    reportDirty(drawerDirty.current || renumberDirtyIds.length > 0);
+  }, [renumberDirtyIds]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const reportSnapshot = useEffectEvent(() =>
@@ -61,9 +93,15 @@ export function EquipmentSummary({
   const faceControl = useRef<HTMLSelectElement>(null);
   const reportBusy = useEffectEvent((busy: boolean) => onBusyChange?.(busy));
   useEffect(() => {
-    reportBusy(pending);
-  }, [pending]);
-  useEffect(() => () => reportBusy(false), []);
+    reportBusy(pending || drawerBusy);
+  }, [pending, drawerBusy]);
+  useEffect(
+    () => () => {
+      reportBusy(false);
+      reportDirty(false);
+    },
+    [],
+  );
   useEffect(() => {
     mounted.current = true;
     let active = true;
@@ -86,40 +124,44 @@ export function EquipmentSummary({
     return () => {
       active = false;
       mounted.current = false;
+      dragSource.current = null;
     };
   }, [siteId]);
 
   function refresh() {
-    if (pending) return;
+    if (pending || drawerBusy || refreshing || drawerOpen.current) return;
     const request = ++requestNumber.current;
-    setState({ status: 'loading' });
+    setRefreshing(true);
     setError('');
     setNotice('');
     void loadEquipment(siteId)
       .then((snapshot) => {
         if (!mounted.current || request !== requestNumber.current) return;
+        // A port may have opened while this read was in flight. Keep its baseline.
+        if (drawerOpen.current || drawerDirty.current) return;
         setState({ status: 'ready', snapshot });
-        if (
-          selectedId &&
-          !snapshot.ports.some((port) => port.id === selectedId)
-        ) {
-          setSelectedId(null);
-          setNotice('The previously selected port is no longer present.');
-        }
       })
       .catch((error: unknown) => {
         if (mounted.current && request === requestNumber.current)
-          setState({
-            status: 'error',
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Equipment could not be loaded.',
-          });
+          setError(
+            error instanceof Error
+              ? error.message
+              : 'Equipment could not be loaded.',
+          );
+      })
+      .finally(() => {
+        if (mounted.current && request === requestNumber.current)
+          setRefreshing(false);
       });
   }
   async function move(device: Device, direction: -1 | 1) {
-    if (pending || state.status !== 'ready') return;
+    if (
+      pending ||
+      drawerBusy ||
+      drawerDirty.current ||
+      state.status !== 'ready'
+    )
+      return;
     const group = groupedDevices(state.snapshot).find((item) =>
       item.devices.some((item) => item.id === device.id),
     );
@@ -161,14 +203,34 @@ export function EquipmentSummary({
       if (mounted.current) setPending(false);
     }
   }
+  function canLeaveInspector() {
+    return (
+      !drawerBusy &&
+      (!drawerDirty.current || window.confirm('Discard unsaved port changes?'))
+    );
+  }
+  function inspectPort(portId: string) {
+    if (selectedId === portId || !canLeaveInspector()) return;
+    clearPortDrag();
+    updateDrawerDirty(false);
+    drawerOpen.current = true;
+    setSelectedId(portId);
+  }
   function closeInspector() {
+    if (!canLeaveInspector()) return;
+    updateDrawerDirty(false);
+    drawerOpen.current = false;
     const previous = selectedId;
     setSelectedId(null);
-    const button = previous
-      ? document.getElementById(`visual-port-${previous}`)
-      : null;
-    if (button instanceof HTMLButtonElement) button.focus();
-    else faceControl.current?.focus();
+    requestAnimationFrame(() => {
+      if (!mounted.current || drawerOpen.current) return;
+      const button = previous
+        ? document.getElementById(`visual-port-${previous}`)
+        : null;
+      if (button instanceof HTMLButtonElement)
+        button.focus({ preventScroll: true });
+      else faceControl.current?.focus({ preventScroll: true });
+    });
   }
 
   const snapshot = state.status === 'ready' ? state.snapshot : null;
@@ -190,45 +252,420 @@ export function EquipmentSummary({
       ? `${device?.displayName ?? 'Device'} / ${port.name}`
       : 'Unavailable endpoint';
   };
+  function clearPortDrag() {
+    dragSource.current = null;
+    setDraggingId(null);
+    setKeyboardPosition(null);
+  }
+  function beginPortDrag(port: Port) {
+    if (
+      pending ||
+      refreshing ||
+      drawerBusy ||
+      drawerOpen.current ||
+      renumberDirtyIds.length > 0 ||
+      orderBusy.current
+    )
+      return false;
+    dragSource.current = { portId: port.id, deviceId: port.deviceId };
+    setDraggingId(port.id);
+    return true;
+  }
+  async function persistPortOrder(portId: string, targetPosition: number) {
+    if (
+      !snapshot ||
+      pending ||
+      refreshing ||
+      drawerBusy ||
+      drawerOpen.current ||
+      renumberDirtyIds.length > 0 ||
+      orderBusy.current
+    )
+      return;
+    const original = snapshot.ports.find((port) => port.id === portId);
+    if (!original) return;
+    const devicePorts = snapshot.ports.filter(
+      (port) => port.deviceId === original.deviceId,
+    );
+    const reordered = reorderPort(devicePorts, portId, targetPosition);
+    const changed = reordered.filter(
+      (port) =>
+        port.orderIndex !==
+        devicePorts.find((item) => item.id === port.id)?.orderIndex,
+    );
+    clearPortDrag();
+    if (!changed.length) return;
+    orderBusy.current = true;
+    setPending(true);
+    setError('');
+    setNotice('');
+    onBusyChange?.(true);
+    const request = ++requestNumber.current;
+    try {
+      const result = await api<PortSaveResult>(
+        `/sites/${siteId}/ports/bulk-edit`,
+        'POST',
+        {
+          updates: changed.map((port) => ({
+            portId: port.id,
+            rowVersion: port.rowVersion,
+            changes: { orderIndex: port.orderIndex },
+          })),
+        },
+      );
+      if (!mounted.current || request !== requestNumber.current) return;
+      setState((previous) =>
+        previous.status === 'ready'
+          ? {
+              status: 'ready',
+              snapshot: {
+                ...previous.snapshot,
+                ports: previous.snapshot.ports.map(
+                  (port) =>
+                    result.ports.find((saved) => saved.id === port.id) ?? port,
+                ),
+                devices: previous.snapshot.devices.map(
+                  (device) =>
+                    result.devices.find((saved) => saved.id === device.id) ??
+                    device,
+                ),
+                customValues: {
+                  ...previous.snapshot.customValues,
+                  ...result.customValues,
+                },
+              },
+            }
+          : previous,
+      );
+      setNotice('Port order saved.');
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLButtonElement>(
+            `button[data-port-grip="${CSS.escape(portId)}"]`,
+          )
+          ?.focus({ preventScroll: true }),
+      );
+    } catch (cause) {
+      if (mounted.current && request === requestNumber.current)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'Port order could not be saved. Refresh saved equipment before retrying.',
+        );
+    } finally {
+      orderBusy.current = false;
+      if (mounted.current) {
+        setPending(false);
+        onBusyChange?.(false);
+      }
+    }
+  }
+  async function renameDevicePorts(ports: Port[]): Promise<boolean> {
+    if (
+      !snapshot ||
+      pending ||
+      refreshing ||
+      drawerBusy ||
+      drawerOpen.current ||
+      orderBusy.current
+    )
+      return false;
+    const deviceId = ports[0]?.deviceId;
+    if (
+      !deviceId ||
+      ports.some((port) => port.deviceId !== deviceId || port.siteId !== siteId)
+    )
+      return false;
+    const changed = ports.filter(
+      (port) =>
+        port.name !==
+        snapshot.ports.find((saved) => saved.id === port.id)?.name,
+    );
+    if (!changed.length) {
+      setNotice('Port names already match the preview.');
+      return true;
+    }
+    orderBusy.current = true;
+    setPending(true);
+    onBusyChange?.(true);
+    setError('');
+    setNotice('');
+    const request = ++requestNumber.current;
+    try {
+      const result = await api<PortSaveResult>(
+        `/sites/${siteId}/ports/bulk-edit`,
+        'POST',
+        {
+          updates: changed.map((port) => ({
+            portId: port.id,
+            rowVersion: port.rowVersion,
+            changes: { name: port.name },
+          })),
+        },
+      );
+      if (!mounted.current || request !== requestNumber.current) return false;
+      setState((previous) =>
+        previous.status === 'ready'
+          ? {
+              status: 'ready',
+              snapshot: {
+                ...previous.snapshot,
+                ports: previous.snapshot.ports.map(
+                  (port) =>
+                    result.ports.find((saved) => saved.id === port.id) ?? port,
+                ),
+                devices: previous.snapshot.devices.map(
+                  (device) =>
+                    result.devices.find((saved) => saved.id === device.id) ??
+                    device,
+                ),
+                customValues: {
+                  ...previous.snapshot.customValues,
+                  ...result.customValues,
+                },
+              },
+            }
+          : previous,
+      );
+      setNotice('Port names saved.');
+      return true;
+    } catch (cause) {
+      if (mounted.current && request === requestNumber.current)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'Port names could not be saved.',
+        );
+      return false;
+    } finally {
+      orderBusy.current = false;
+      if (mounted.current) {
+        setPending(false);
+        onBusyChange?.(false);
+      }
+    }
+  }
+  function dropPort(target: Port) {
+    const source = dragSource.current;
+    if (!source || source.deviceId !== target.deviceId || !snapshot) {
+      clearPortDrag();
+      return;
+    }
+    const ordered = snapshot.ports
+      .filter((port) => port.deviceId === source.deviceId)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    void persistPortOrder(
+      source.portId,
+      ordered.findIndex((port) => port.id === target.id),
+    );
+  }
   function portButton(port: Port, device: Device) {
     const cable = snapshot!.connections.find(
       (item) =>
         item.endpointAPortId === port.id || item.endpointBPortId === port.id,
     );
+    const peerId = cable
+      ? cable.endpointAPortId === port.id
+        ? cable.endpointBPortId
+        : cable.endpointAPortId
+      : null;
+    const connectedLabel = peerId ? endpointLabel(peerId) : '';
     return (
-      <button
+      <div
+        className="visual-port-slot"
         key={port.id}
-        id={`visual-port-${port.id}`}
-        data-port-id={port.id}
-        data-kind={port.kind}
-        data-mode={port.mode}
-        type="button"
-        className="visual-port"
-        aria-label={`${device.displayName} ${port.name}, ${portSummary(port, snapshot!.vlans)}`}
-        aria-pressed={selectedId === port.id}
-        title={`${port.name}: ${portSummary(port, snapshot!.vlans)}`}
-        onClick={() => setSelectedId(port.id)}
-        onFocus={() => setPreviewId(port.id)}
-        onMouseEnter={() => setPreviewId(port.id)}
+        data-port-drop-id={port.id}
+        data-dragging={draggingId === port.id}
+        onDragOver={(event) => {
+          if (dragSource.current?.deviceId === port.deviceId) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+          }
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          dropPort(port);
+        }}
       >
-        <Connector kind={port.kind} color={portColor(port, snapshot!.vlans)} />
-        <span className="visual-port-label">{port.name}</span>
-        <span className="visual-port-mode">{modeNames[port.mode]}</span>
-        {port.taggedVlanRefs.length > 0 && (
-          <span className="visual-port-cable">
-            {port.taggedVlanRefs.length} tagged
-          </span>
-        )}
-        {cable && <span className="visual-port-cable">Cabled</span>}
-      </button>
+        <button
+          type="button"
+          className="visual-port-grip"
+          data-port-grip={port.id}
+          aria-label={`Reorder ${device.displayName} ${port.name}`}
+          aria-pressed={draggingId === port.id}
+          disabled={
+            pending ||
+            refreshing ||
+            drawerBusy ||
+            Boolean(selectedId) ||
+            renumberDirtyIds.length > 0
+          }
+          draggable={
+            !pending && !refreshing && !selectedId && !renumberDirtyIds.length
+          }
+          title="Drag to reorder. Keyboard: Enter to pick up, arrows to choose position, Enter to save, Escape to cancel."
+          onDragStart={(event) => {
+            if (!beginPortDrag(port)) {
+              event.preventDefault();
+              return;
+            }
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', port.id);
+          }}
+          onDragEnd={clearPortDrag}
+          onPointerDown={(event) => {
+            if (event.pointerType === 'touch' && beginPortDrag(port)) {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }
+          }}
+          onPointerUp={(event) => {
+            if (event.pointerType !== 'touch' || !dragSource.current) return;
+            event.preventDefault();
+            const targetElement = document
+              .elementFromPoint(event.clientX, event.clientY)
+              ?.closest<HTMLElement>('[data-port-drop-id]');
+            const target = snapshot!.ports.find(
+              (item) => item.id === targetElement?.dataset.portDropId,
+            );
+            if (target) dropPort(target);
+            else clearPortDrag();
+          }}
+          onPointerCancel={(event) => {
+            // Native mouse drag dispatches pointercancel when HTML DnD takes
+            // ownership. Only cancel the separate touch-pointer gesture here.
+            if (event.pointerType === 'touch') clearPortDrag();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              clearPortDrag();
+              setNotice('Port reordering cancelled.');
+              return;
+            }
+            const ordered = snapshot!.ports
+              .filter((item) => item.deviceId === port.deviceId)
+              .sort(
+                (a, b) =>
+                  a.orderIndex - b.orderIndex || a.id.localeCompare(b.id),
+              );
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              if (draggingId === port.id && keyboardPosition !== null) {
+                void persistPortOrder(port.id, keyboardPosition);
+              } else if (beginPortDrag(port)) {
+                const position = ordered.findIndex(
+                  (item) => item.id === port.id,
+                );
+                setKeyboardPosition(position);
+                setNotice(
+                  `${port.name} picked up. Position ${position + 1} of ${ordered.length}. Use arrow keys, then Enter to save.`,
+                );
+              }
+              return;
+            }
+            if (
+              draggingId === port.id &&
+              keyboardPosition !== null &&
+              ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
+                event.key,
+              )
+            ) {
+              event.preventDefault();
+              const position = Math.max(
+                0,
+                Math.min(
+                  ordered.length - 1,
+                  keyboardPosition +
+                    (event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                      ? -1
+                      : 1),
+                ),
+              );
+              setKeyboardPosition(position);
+              setNotice(
+                `${port.name}: position ${position + 1} of ${ordered.length}. Enter saves; Escape cancels.`,
+              );
+            }
+          }}
+        >
+          ⠿
+        </button>
+        <button
+          id={`visual-port-${port.id}`}
+          data-port-id={port.id}
+          data-kind={port.kind}
+          data-mode={port.mode}
+          type="button"
+          className="visual-port"
+          aria-label={`${device.displayName} ${port.name}, ${portSummary(port, snapshot!.vlans)}${connectedLabel ? ', connected to ' + connectedLabel : ''}`}
+          aria-pressed={selectedId === port.id}
+          title={`${port.name}: ${portSummary(port, snapshot!.vlans)}`}
+          onClick={() => inspectPort(port.id)}
+          onFocus={() => setPreviewId(port.id)}
+          onMouseEnter={() => setPreviewId(port.id)}
+        >
+          <Connector
+            kind={port.kind}
+            color={portColor(port, snapshot!.vlans)}
+          />
+          <span className="visual-port-label">{port.name}</span>
+          <span className="visual-port-mode">{modeNames[port.mode]}</span>
+          {port.nativeVlanRef &&
+            port.mode !== 'routed' &&
+            snapshot!.vlans
+              .filter((vlan) => vlan.id === port.nativeVlanRef)
+              .map((vlan) => (
+                <span
+                  key={vlan.id}
+                  className="visual-port-vlan"
+                  data-vlan-id={vlan.id}
+                  data-membership="native"
+                  style={{ borderColor: vlanColor(vlan) }}
+                  title={
+                    'Native/Untagged: VLAN ' + vlan.vlanId + ' · ' + vlan.name
+                  }
+                >
+                  VLAN {vlan.vlanId}
+                </span>
+              ))}
+          {port.taggedVlanRefs.slice(0, 3).map((id) => {
+            const vlan = snapshot!.vlans.find((item) => item.id === id);
+            return vlan ? (
+              <span
+                key={id}
+                className="visual-port-vlan"
+                data-vlan-id={id}
+                data-membership="tagged"
+                style={{ borderColor: vlanColor(vlan) }}
+                title={'Tagged: VLAN ' + vlan.vlanId + ' · ' + vlan.name}
+              >
+                Tagged {vlan.vlanId}
+              </span>
+            ) : null;
+          })}
+          {port.taggedVlanRefs.length > 3 && (
+            <span className="visual-port-cable">
+              +{port.taggedVlanRefs.length - 3} tagged
+            </span>
+          )}
+          {cable && (
+            <span
+              className="visual-port-cable visual-port-peer"
+              title={`Connected to ${connectedLabel}`}
+            >
+              ↔ {connectedLabel}
+            </span>
+          )}
+        </button>
+      </div>
     );
   }
 
   return (
     <section
       className={
-        'equipment-summary visual-equipment density-' +
-        density +
+        'equipment-summary visual-equipment' +
         (deviceId ? ' device-front-panel' : '')
       }
       aria-labelledby="equipment-title"
@@ -238,7 +675,13 @@ export function EquipmentSummary({
         <button
           type="button"
           className="subtle"
-          disabled={state.status === 'loading' || pending}
+          disabled={
+            state.status === 'loading' ||
+            pending ||
+            refreshing ||
+            Boolean(draggingId) ||
+            renumberDirtyIds.length > 0
+          }
           onClick={refresh}
         >
           Refresh equipment
@@ -271,17 +714,6 @@ export function EquipmentSummary({
       ) : (
         <>
           <div className="visual-controls">
-            <label>
-              Port size
-              <select
-                value={density}
-                onChange={(event) => setDensity(event.target.value)}
-              >
-                <option value="compact">Compact</option>
-                <option value="comfortable">Comfortable</option>
-                <option value="large">Large</option>
-              </select>
-            </label>
             <label>
               Panel face
               <select
@@ -342,8 +774,8 @@ export function EquipmentSummary({
               ? `${snapshot!.devices.find((device) => device.id === preview.deviceId)?.displayName ?? 'Device'} / ${preview.name}: ${portSummary(preview, snapshot!.vlans)}`
               : 'Hover or focus a port for a summary. Select it to inspect its documented configuration.'}
           </p>
-          <div className={`visual-layout${selected ? ' has-inspector' : ''}`}>
-            <div className="visual-stack">
+          <div className="visual-layout">
+            <div className="visual-stack" ref={cableContainer}>
               {groupedDevices(visibleSnapshot!).map((group) => (
                 <section
                   className="visual-rack-group"
@@ -470,6 +902,23 @@ export function EquipmentSummary({
                             {device.description}
                           </p>
                         )}
+                        {ports.length > 0 && (
+                          <RenumberPortsTool
+                            key={device.id}
+                            device={device}
+                            ports={ports}
+                            disabled={
+                              pending ||
+                              refreshing ||
+                              drawerBusy ||
+                              Boolean(selectedId)
+                            }
+                            onRename={renameDevicePorts}
+                            onDirtyChange={(dirty) =>
+                              updateRenumberDirty(device.id, dirty)
+                            }
+                          />
+                        )}
                         {(['front', 'rear'] as const)
                           .filter((side) => face === 'both' || face === side)
                           .map((side) => {
@@ -495,6 +944,13 @@ export function EquipmentSummary({
                                   <div
                                     className="visual-ports"
                                     data-dense={facePorts.length > 12}
+                                    style={
+                                      facePorts.length > 12
+                                        ? {
+                                            gridTemplateColumns: `repeat(${Math.ceil(facePorts.length / 2)}, var(--port-tile))`,
+                                          }
+                                        : undefined
+                                    }
                                   >
                                     {facePorts.map((port) =>
                                       portButton(port, device),
@@ -537,19 +993,182 @@ export function EquipmentSummary({
                   })}
                 </section>
               ))}
+              {showConnections && (
+                <CableOverlay
+                  snapshot={snapshot!}
+                  container={cableContainer}
+                  selectedPortId={selectedId}
+                  onInspect={inspectPort}
+                />
+              )}
             </div>
             {selected && (
               <PortInspector
+                key={selected.id}
                 port={selected}
                 snapshot={snapshot!}
                 onClose={closeInspector}
-                onInspect={setSelectedId}
-                onConfigure={onConfigure}
+                onInspect={inspectPort}
+                onDirtyChange={updateDrawerDirty}
+                onBusyChange={setDrawerBusy}
+                onSaved={(result) => {
+                  // Invalidate any older equipment read before publishing saved records.
+                  ++requestNumber.current;
+                  setRefreshing(false);
+                  setState((previous) =>
+                    previous.status === 'ready'
+                      ? {
+                          status: 'ready',
+                          snapshot: {
+                            ...previous.snapshot,
+                            ports: previous.snapshot.ports.map(
+                              (port) =>
+                                result.ports.find(
+                                  (item) => item.id === port.id,
+                                ) ?? port,
+                            ),
+                            devices: previous.snapshot.devices.map(
+                              (device) =>
+                                result.devices.find(
+                                  (item) => item.id === device.id,
+                                ) ?? device,
+                            ),
+                            customValues: {
+                              ...previous.snapshot.customValues,
+                              ...result.customValues,
+                            },
+                          },
+                        }
+                      : previous,
+                  );
+                }}
               />
             )}
           </div>
         </>
       )}
     </section>
+  );
+}
+
+function RenumberPortsTool({
+  device,
+  ports,
+  disabled,
+  onRename,
+  onDirtyChange,
+}: {
+  device: Device;
+  ports: Port[];
+  disabled: boolean;
+  onRename: (ports: Port[]) => Promise<boolean>;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [prefix, setPrefix] = useState('Port ');
+  const [start, setStart] = useState('1');
+  const [preview, setPreview] = useState<Port[] | null>(null);
+  const [error, setError] = useState('');
+  const dirty = prefix !== 'Port ' || start !== '1' || preview !== null;
+  const reportDirty = useEffectEvent(onDirtyChange);
+  useEffect(() => {
+    reportDirty(dirty);
+  }, [dirty]);
+  useEffect(() => () => reportDirty(false), []);
+  function clear() {
+    setPrefix('Port ');
+    setStart('1');
+    setPreview(null);
+    setError('');
+    onDirtyChange(false);
+  }
+  return (
+    <details className="visual-renumber-tool">
+      <summary>Renumber ports</summary>
+      <form
+        aria-label={`Renumber ports on ${device.displayName}`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (disabled) return;
+          setError('');
+          try {
+            setPreview(renumberPorts(ports, prefix, Number(start)));
+          } catch (cause) {
+            setPreview(null);
+            setError(
+              cause instanceof Error
+                ? cause.message
+                : 'Choose a valid prefix and start number.',
+            );
+          }
+        }}
+      >
+        <label>
+          Name prefix
+          <input
+            aria-label={`${device.displayName} port name prefix`}
+            value={prefix}
+            maxLength={120}
+            disabled={disabled}
+            onChange={(event) => {
+              setPrefix(event.target.value);
+              setPreview(null);
+            }}
+          />
+        </label>
+        <label>
+          Start number
+          <input
+            aria-label={`${device.displayName} port start number`}
+            type="number"
+            min={1}
+            max={65535}
+            step={1}
+            required
+            value={start}
+            disabled={disabled}
+            onChange={(event) => {
+              setStart(event.target.value);
+              setPreview(null);
+            }}
+          />
+        </label>
+        <button type="submit" disabled={disabled}>
+          Preview port names
+        </button>
+        {error && (
+          <p role="alert" className="error-message">
+            {error}
+          </p>
+        )}
+        {preview && (
+          <section aria-label="Port name preview">
+            <p>
+              {preview.length} port names in physical order. Saved names change
+              only after Rename ports.
+            </p>
+            <ol>
+              {preview.map((port) => (
+                <li key={port.id}>
+                  {ports.find((saved) => saved.id === port.id)?.name} →{' '}
+                  <strong>{port.name}</strong>
+                </li>
+              ))}
+            </ol>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={async () => {
+                if (await onRename(preview)) clear();
+              }}
+            >
+              Rename ports
+            </button>
+          </section>
+        )}
+        <button type="button" disabled={disabled} onClick={clear}>
+          Clear renumbering
+        </button>
+      </form>
+    </details>
   );
 }

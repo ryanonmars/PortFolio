@@ -200,3 +200,52 @@ export function portTSV(ports: Port[], vlans: Vlan[]): string {
     ),
   ].join('\n');
 }
+
+/** Move an existing identity between existing physical slots; names and data stay intact. */
+export function reorderPort(
+  ports: Port[],
+  portId: string,
+  position: number,
+): Port[] {
+  const ordered = ports
+    .slice()
+    .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+  const from = ordered.findIndex((port) => port.id === portId);
+  if (from < 0) throw new Error('The selected port is unavailable.');
+  if (!Number.isInteger(position) || position < 0 || position >= ordered.length)
+    throw new Error('Choose a valid port position.');
+  const slots = ordered.map((port) => port.orderIndex);
+  const [moved] = ordered.splice(from, 1);
+  ordered.splice(position, 0, moved!);
+  return ordered.map((port, index) =>
+    port.orderIndex === slots[index]
+      ? port
+      : { ...port, orderIndex: slots[index]! },
+  );
+}
+
+/** Rename the full device in canonical physical order, retaining every identity. */
+export function renumberPorts(
+  ports: Port[],
+  prefix: string,
+  start: number,
+): Port[] {
+  if (
+    !Number.isInteger(start) ||
+    start < 1 ||
+    start > 65535 ||
+    start + ports.length - 1 > 65535
+  )
+    throw new Error('Choose numbering between 1 and 65535 for every port.');
+  if (prefix.length > 120)
+    throw new Error('Port names must be 1–120 characters.');
+  return ports
+    .slice()
+    .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id))
+    .map((port, index) => {
+      const name = `${prefix}${start + index}`.trim();
+      if (!name || name.length > 120)
+        throw new Error('Port names must be 1–120 characters.');
+      return port.name === name ? port : { ...port, name };
+    });
+}

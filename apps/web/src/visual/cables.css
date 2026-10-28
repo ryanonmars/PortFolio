@@ -1,0 +1,75 @@
+.cable-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.cable-overlay-svg {
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+.cable-overlay-line {
+  opacity: 0.82;
+  transition: opacity 100ms ease;
+}
+.cable-overlay-line[data-dimmed='true'] {
+  opacity: 0.16;
+}
+.cable-overlay-line[data-highlighted='true'] {
+  opacity: 1;
+}
+.cable-overlay-line path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cable-overlay-shadow {
+  stroke: #101714;
+  stroke-width: 5;
+}
+.cable-overlay-stroke {
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.cable-overlay-line[data-highlighted='true'] .cable-overlay-stroke {
+  stroke-width: 3;
+}
+.cable-overlay-endpoint {
+  fill: currentColor;
+  stroke: #101714;
+  stroke-width: 1;
+}
+.cable-overlay-hit {
+  stroke: transparent;
+  stroke-width: 10;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.cable-overlay-hit:focus-visible {
+  outline: none;
+  stroke: #edf4ef;
+  stroke-opacity: 0.25;
+}
+.cable-overlay-caption {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  margin: 8px auto;
+  padding: 7px 10px;
+  border: 1px solid #74867a;
+  border-radius: 4px;
+  background: #111d16;
+  color: #e1ece4;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cable-overlay-line {
+    transition: none;
+  }
+}

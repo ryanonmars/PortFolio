@@ -20,6 +20,8 @@ export function DeviceDetail({
   vlans,
   onConfigure,
   onEdit,
+  onDirtyChange,
+  onBusyChange,
 }: {
   siteId: string;
   device: Device;
@@ -27,6 +29,8 @@ export function DeviceDetail({
   vlans: Vlan[];
   onConfigure: (portId?: string, deviceId?: string) => void;
   onEdit: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const [state, setState] = useState<DetailState | null>(null);
   const [retry, setRetry] = useState(0);
@@ -88,6 +92,8 @@ export function DeviceDetail({
         key={key}
         siteId={siteId}
         deviceId={device.id}
+        onDirtyChange={onDirtyChange}
+        onBusyChange={onBusyChange}
         onSnapshotChange={(snapshot, error) =>
           setState(snapshot ? { key, snapshot } : error ? { key, error } : null)
         }

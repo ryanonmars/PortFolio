@@ -24,6 +24,7 @@ import {
   type BulkPortEdit,
 } from '../../../packages/shared/src/index.js';
 import { api, ApiError } from './api.js';
+import { TaggedVlanPicker } from './TaggedVlanPicker.js';
 import { CustomFields, CustomInput } from './grid/CustomFields.js';
 import {
   columnsFromPreferences,
@@ -33,6 +34,8 @@ import {
   portTSV,
   rowErrors,
   pasteHeaders,
+  reorderPort,
+  renumberPorts,
   type ColumnPreference,
 } from './grid/helpers.js';
 import { compactCellText, parseCellMatrix } from './grid/compact.js';
@@ -147,6 +150,19 @@ export function PortGrid({
   } | null>(null);
   const [templates, setTemplates] = useState<DeviceTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
+  const [renamePrefix, setRenamePrefix] = useState('Port ');
+  const [renameStart, setRenameStart] = useState('1');
+  const [dragPortId, setDragPortId] = useState<string | null>(null);
+  const dragOrigin = useRef<string | null>(null);
+  const [keyboardDragPosition, setKeyboardDragPosition] = useState<
+    number | null
+  >(null);
+  const pointerDrag = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
   useEffect(() => {
     let active = true;
     void api<{ templates: DeviceTemplate[] }>('/device-templates')
@@ -311,6 +327,8 @@ export function PortGrid({
         setConflict(false);
         setServerErrors({});
         setAuxiliaryDirty({});
+        setRenamePrefix('Port ');
+        setRenameStart('1');
         setActiveCablePortId(null);
         setPeerSelection({});
         setSelected([]);
@@ -399,6 +417,21 @@ export function PortGrid({
     if (conflict) {
       setError(
         'Server records changed. Reload and discard drafts before saving.',
+      );
+      return;
+    }
+    const identityIds = Object.entries(drafts)
+      .filter(
+        ([id, draft]) =>
+          draft.port.orderIndex !==
+            snapshot?.ports.find((port) => port.id === id)?.orderIndex ||
+          draft.port.name !==
+            snapshot?.ports.find((port) => port.id === id)?.name,
+      )
+      .map(([id]) => id);
+    if (identityIds.some((id) => !portIds.includes(id))) {
+      setError(
+        'Use Save all changes to save port names and ordering together.',
       );
       return;
     }
@@ -897,6 +930,90 @@ export function PortGrid({
   const lazyConnections = snapshot.peers.length > 64;
   const visibleColumns = columns.filter((column) => column.visible);
   const inspectedPort = currentPorts.find((port) => port.id === inspectedId);
+  const orderedPorts = currentPorts
+    .slice()
+    .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+  const hasIdentityDraft = Object.entries(drafts).some(
+    ([id, draft]) =>
+      draft.port.orderIndex !==
+        snapshot.ports.find((port) => port.id === id)?.orderIndex ||
+      draft.port.name !== snapshot.ports.find((port) => port.id === id)?.name,
+  );
+  const reorderBlocked =
+    pending || fieldBusy || fieldDirty || hasCableDraft || conflict;
+  let renamePreview: Port[] = [];
+  let renameError = '';
+  try {
+    renamePreview = renumberPorts(
+      currentPorts,
+      renamePrefix,
+      Number(renameStart),
+    );
+  } catch (cause) {
+    renameError = message(cause);
+  }
+  const renameCount = renamePreview.filter(
+    (port) =>
+      port.name !== currentPorts.find((item) => item.id === port.id)?.name,
+  ).length;
+  function stagePortNames() {
+    if (reorderBlocked || renameError || !renameCount) return;
+    const originals = new Map(snapshot!.ports.map((port) => [port.id, port]));
+    setDrafts((previous) => {
+      const next = { ...previous };
+      for (const port of renamePreview) {
+        const customValues = previous[port.id]?.customValues ?? {};
+        if (
+          JSON.stringify(port) === JSON.stringify(originals.get(port.id)) &&
+          !Object.keys(customValues).length
+        )
+          delete next[port.id];
+        else next[port.id] = { port, customValues };
+      }
+      return next;
+    });
+    setSort('order');
+    setSearch('');
+    setPage(0);
+    setEditingCell(null);
+    setServerErrors({});
+    setError('');
+    setPastePreview(null);
+    setToolDirty(false, 'renumber');
+    setNotice(`${renameCount} port names staged. Save all changes to apply.`);
+  }
+  function moveTo(portId: string, position: number) {
+    if (reorderBlocked) return;
+    try {
+      const moved = reorderPort(currentPorts, portId, position);
+      const originals = new Map(snapshot!.ports.map((port) => [port.id, port]));
+      setDrafts((previous) => {
+        const next = { ...previous };
+        for (const port of moved) {
+          const original = originals.get(port.id)!;
+          const customValues = previous[port.id]?.customValues ?? {};
+          if (
+            JSON.stringify(port) === JSON.stringify(original) &&
+            !Object.keys(customValues).length
+          )
+            delete next[port.id];
+          else next[port.id] = { port, customValues };
+        }
+        return next;
+      });
+      setEditingCell(null);
+
+      setSort('order');
+      setSearch('');
+      setPage(Math.floor(position / 64));
+      setServerErrors({});
+      setPastePreview(null);
+      setError('');
+      setNotice('Port order staged. Save all changes to apply it.');
+    } catch (error) {
+      setError(message(error));
+    }
+  }
   function focusCell(portId: string, column: string) {
     requestAnimationFrame(() =>
       gridRoot.current
@@ -908,7 +1025,7 @@ export function PortGrid({
   }
   function openCell(port: Port, column: string) {
     if (hasCableDraft || pending || fieldBusy || fieldDirty) return;
-    setInspectedId(port.id);
+    if (column === 'connectedTo') setInspectedId(port.id);
     if (column !== 'connectedTo') setEditingCell({ portId: port.id, column });
     else setEditingCell(null);
   }
@@ -919,6 +1036,16 @@ export function PortGrid({
   ) {
     const editing =
       editingCell?.portId === port.id && editingCell.column === column;
+    if (column === 'taggedVlanRefs') {
+      if (event.key === 'Enter' || event.key === ' ') return;
+      if (event.key === 'F2') {
+        event.preventDefault();
+        event.currentTarget
+          .querySelector<HTMLButtonElement>('.tagged-vlan-trigger')
+          ?.click();
+        return;
+      }
+    }
     if (event.key === 'Escape' && editing) {
       escapeCell(port, column, event);
       setEditingCell(null);
@@ -1061,28 +1188,15 @@ export function PortGrid({
       );
     if (column === 'taggedVlanRefs')
       return (
-        <select
-          aria-label={label}
-          aria-invalid={invalid || undefined}
-          aria-describedby={invalid ? errorId : undefined}
-          disabled={disabled}
-          multiple
-          size={Math.min(3, Math.max(2, vlans.length))}
+        <TaggedVlanPicker
+          label={label}
+          vlans={vlans}
           value={port.taggedVlanRefs}
-          onChange={(event) =>
-            stage(port, {
-              taggedVlanRefs: Array.from(event.target.selectedOptions).map(
-                (option) => option.value,
-              ),
-            })
-          }
-        >
-          {vlans.map((vlan) => (
-            <option key={vlan.id} value={vlan.id}>
-              {vlan.vlanId} · {vlan.name || 'Unnamed'}
-            </option>
-          ))}
-        </select>
+          invalid={invalid}
+          errorId={invalid ? errorId : undefined}
+          disabled={disabled}
+          onChange={(ids) => stage(port, { taggedVlanRefs: ids })}
+        />
       );
     if (column === 'documentedLinkState')
       return (
@@ -1266,7 +1380,10 @@ export function PortGrid({
         />
       );
     const numeric = column === 'pvid' || column === 'orderIndex';
-    const value = port[column as keyof Port];
+    const value =
+      column === 'orderIndex'
+        ? port.orderIndex + 1
+        : port[column as keyof Port];
     return (
       <input
         aria-label={label}
@@ -1274,9 +1391,9 @@ export function PortGrid({
         aria-describedby={invalid ? errorId : undefined}
         disabled={disabled}
         type={numeric ? 'number' : 'text'}
-        min={column === 'pvid' ? 1 : column === 'orderIndex' ? 0 : undefined}
+        min={numeric ? 1 : undefined}
         max={
-          column === 'pvid' ? 4094 : column === 'orderIndex' ? 65535 : undefined
+          column === 'pvid' ? 4094 : column === 'orderIndex' ? 65536 : undefined
         }
         step={numeric ? 1 : undefined}
         value={
@@ -1293,7 +1410,7 @@ export function PortGrid({
                 ? column === 'pvid'
                   ? null
                   : Number.NaN
-                : Number(event.target.value)
+                : Number(event.target.value) - (column === 'orderIndex' ? 1 : 0)
               : event.target.value,
           })
         }
@@ -1366,6 +1483,78 @@ export function PortGrid({
         </p>
       )}
       <div className="grid-tools">
+        <details className="grid-tool">
+          <summary>Renumber ports</summary>
+          <p className="grid-help">
+            Replace names for all {currentPorts.length} ports in physical order,
+            across all faces and pages.
+          </p>
+          <div className="grid-actions">
+            <label>
+              Name prefix
+              <input
+                aria-label="Renumber name prefix"
+                value={renamePrefix}
+                maxLength={120}
+                disabled={reorderBlocked}
+                onChange={(event) => {
+                  setRenamePrefix(event.target.value);
+                  setToolDirty(true, 'renumber');
+                }}
+              />
+            </label>
+            <label>
+              Start number
+              <input
+                aria-label="Renumber start number"
+                type="number"
+                min={1}
+                max={65535}
+                value={renameStart}
+                disabled={reorderBlocked}
+                onChange={(event) => {
+                  setRenameStart(event.target.value);
+                  setToolDirty(true, 'renumber');
+                }}
+              />
+            </label>
+          </div>
+          {renameError ? (
+            <p role="alert" className="error-message">
+              {renameError}
+            </p>
+          ) : (
+            <ul
+              className="port-name-preview"
+              aria-label="Port renumber preview"
+            >
+              {renamePreview.map((port) => (
+                <li key={port.id}>
+                  {currentPorts.find((item) => item.id === port.id)?.name} →{' '}
+                  {port.name}
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            disabled={reorderBlocked || Boolean(renameError) || !renameCount}
+            onClick={stagePortNames}
+          >
+            Stage port names
+          </button>
+          <button
+            type="button"
+            disabled={reorderBlocked}
+            onClick={() => {
+              setRenamePrefix('Port ');
+              setRenameStart('1');
+              setToolDirty(false, 'renumber');
+            }}
+          >
+            Reset numbering
+          </button>
+        </details>
         <details className="grid-tool">
           <summary>Add ports</summary>
           <p className="grid-help">
@@ -1575,6 +1764,8 @@ export function PortGrid({
                 ?.querySelectorAll<HTMLFormElement>('form[data-tool]')
                 .forEach((form) => form.reset());
               setAuxiliaryDirty({});
+              setRenamePrefix('Port ');
+              setRenameStart('1');
               setActiveCablePortId(null);
               setNotice('Auxiliary form changes discarded.');
             }}
@@ -1943,9 +2134,27 @@ export function PortGrid({
             tabIndex={0}
             aria-label="Scrollable port table"
           >
-            <table aria-label={`${device.displayName} ports`}>
+            <table
+              aria-label={`${device.displayName} ports`}
+              style={{ width: 38 + 38 + 58 + visibleColumns.length * 164 }}
+            >
+              <colgroup>
+                <col style={{ width: 38 }} />
+                <col style={{ width: 38 }} />
+                {visibleColumns.map((column) => (
+                  <col key={column.id} style={{ width: 164 }} />
+                ))}
+                <col style={{ width: 58 }} />
+              </colgroup>
               <thead>
                 <tr>
+                  <th
+                    scope="col"
+                    className="port-drag-column"
+                    aria-label="Port order"
+                  >
+                    ⠿
+                  </th>
                   <th>
                     <input
                       aria-label="Select all visible ports"
@@ -1990,10 +2199,154 @@ export function PortGrid({
                     data-port-id={port.id}
                     data-dirty={Boolean(drafts[port.id])}
                     data-inspected={inspectedId === port.id}
-                    onClick={() => {
-                      if (!hasCableDraft) setInspectedId(port.id);
+                    data-dragging={dragPortId === port.id}
+                    onDragOver={(event) => {
+                      if (
+                        !reorderBlocked &&
+                        dragOrigin.current &&
+                        dragOrigin.current !== port.id
+                      )
+                        event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const source = dragOrigin.current;
+                      dragOrigin.current = null;
+                      setDragPortId(null);
+                      if (reorderBlocked || !source || source === port.id)
+                        return;
+                      moveTo(
+                        source,
+                        orderedPorts.findIndex((item) => item.id === port.id),
+                      );
                     }}
                   >
+                    <td className="port-drag-column">
+                      <button
+                        type="button"
+                        className="port-drag-handle"
+                        aria-label={`Reorder ${port.name}`}
+                        draggable={!reorderBlocked}
+                        disabled={reorderBlocked}
+                        title="Drag to reorder ports"
+                        onClick={(event) => event.stopPropagation()}
+                        onDragStart={(event) => {
+                          if (reorderBlocked) {
+                            event.preventDefault();
+                            return;
+                          }
+                          dragOrigin.current = port.id;
+                          setDragPortId(port.id);
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData(
+                            'application/x-portfolio-grid-port',
+                            port.id,
+                          );
+                        }}
+                        onDragEnd={() => {
+                          dragOrigin.current = null;
+                          setDragPortId(null);
+                        }}
+                        onPointerDown={(event) => {
+                          if (event.pointerType === 'mouse' || reorderBlocked)
+                            return;
+                          pointerDrag.current = {
+                            id: port.id,
+                            x: event.clientX,
+                            y: event.clientY,
+                            moved: false,
+                          };
+                          event.currentTarget.setPointerCapture(
+                            event.pointerId,
+                          );
+                        }}
+                        onPointerMove={(event) => {
+                          const start = pointerDrag.current;
+                          if (
+                            start &&
+                            Math.hypot(
+                              event.clientX - start.x,
+                              event.clientY - start.y,
+                            ) > 6
+                          ) {
+                            start.moved = true;
+                            setDragPortId(port.id);
+                          }
+                        }}
+                        onPointerUp={(event) => {
+                          const start = pointerDrag.current;
+                          pointerDrag.current = null;
+                          setDragPortId(null);
+                          if (!start?.moved || reorderBlocked) return;
+                          const row = document
+                            .elementFromPoint(event.clientX, event.clientY)
+                            ?.closest('tr[data-port-id]');
+                          if (!row || !gridRoot.current?.contains(row)) return;
+                          const position = orderedPorts.findIndex(
+                            (item) =>
+                              item.id === row.getAttribute('data-port-id'),
+                          );
+                          if (position >= 0) moveTo(start.id, position);
+                        }}
+                        onPointerCancel={() => {
+                          pointerDrag.current = null;
+                          setDragPortId(null);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            dragOrigin.current = null;
+                            setDragPortId(null);
+                            setKeyboardDragPosition(null);
+                            setNotice('Port reordering cancelled.');
+                          } else if (
+                            event.key === ' ' ||
+                            event.key === 'Enter'
+                          ) {
+                            event.preventDefault();
+                            if (
+                              dragOrigin.current === port.id &&
+                              keyboardDragPosition !== null
+                            ) {
+                              moveTo(port.id, keyboardDragPosition);
+                              dragOrigin.current = null;
+                              setDragPortId(null);
+                              setKeyboardDragPosition(null);
+                            } else {
+                              dragOrigin.current = port.id;
+                              setDragPortId(port.id);
+                              setKeyboardDragPosition(
+                                orderedPorts.findIndex(
+                                  (item) => item.id === port.id,
+                                ),
+                              );
+                              setNotice(
+                                'Port picked up. Use arrow keys to choose a position; Enter to stage. Escape cancels.',
+                              );
+                            }
+                          } else if (
+                            dragOrigin.current === port.id &&
+                            keyboardDragPosition !== null &&
+                            ['ArrowUp', 'ArrowDown'].includes(event.key)
+                          ) {
+                            event.preventDefault();
+                            const position = Math.max(
+                              0,
+                              Math.min(
+                                orderedPorts.length - 1,
+                                keyboardDragPosition +
+                                  (event.key === 'ArrowUp' ? -1 : 1),
+                              ),
+                            );
+                            setKeyboardDragPosition(position);
+                            setNotice(
+                              `${port.name}: position ${position + 1} of ${orderedPorts.length}. Enter to stage.`,
+                            );
+                          }
+                        }}
+                      >
+                        ⠿
+                      </button>
+                    </td>
                     <td>
                       <input
                         aria-label={`Select ${port.name}`}
@@ -2087,9 +2440,10 @@ export function PortGrid({
                           event.preventDefault();
                         }}
                       >
-                        {editingCell?.portId === port.id &&
-                        editingCell.column === column.id &&
-                        column.id !== 'connectedTo' ? (
+                        {column.id === 'taggedVlanRefs' ||
+                        (editingCell?.portId === port.id &&
+                          editingCell.column === column.id &&
+                          column.id !== 'connectedTo') ? (
                           renderCell(port, column.id)
                         ) : (
                           <button
@@ -2147,29 +2501,45 @@ export function PortGrid({
                         <summary aria-label={`Actions for ${port.name}`}>
                           •••
                         </summary>
-                        <button
-                          type="button"
-                          disabled={
-                            !drafts[port.id] ||
-                            pending ||
-                            fieldDirty ||
-                            conflict
-                          }
-                          onClick={() => void save([port.id])}
-                          aria-label={`Save ${port.name}`}
-                        >
-                          Save row
-                        </button>
-                        <button
-                          type="button"
-                          disabled={
-                            optionalBusy || cablesFor(port.id).length > 0
-                          }
-                          onClick={() => void deletePort(port)}
-                          aria-label={`Delete ${port.name}`}
-                        >
-                          Delete
-                        </button>
+                        <div className="port-row-actions">
+                          <button
+                            type="button"
+                            aria-label={`Details for ${port.name}`}
+                            disabled={hasCableDraft}
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest('details')
+                                ?.removeAttribute('open');
+                              setInspectedId(port.id);
+                            }}
+                          >
+                            Port details
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              !drafts[port.id] ||
+                              pending ||
+                              fieldDirty ||
+                              conflict ||
+                              hasIdentityDraft
+                            }
+                            onClick={() => void save([port.id])}
+                            aria-label={`Save ${port.name}`}
+                          >
+                            Save row
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              optionalBusy || cablesFor(port.id).length > 0
+                            }
+                            onClick={() => void deletePort(port)}
+                            aria-label={`Delete ${port.name}`}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </details>
                     </td>
                   </tr>

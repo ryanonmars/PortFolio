@@ -1,4 +1,8 @@
-import { gridCell } from './grid-actions.js';
+import {
+  gridCell,
+  openTaggedVlans,
+  selectTaggedVlans,
+} from './grid-actions.js';
 import { sidebarNavigate } from './sidebar-actions.js';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -255,10 +259,116 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
     page.locator(`article[data-device-id="${device.id}"]`);
   const portButton = (port: Port) =>
     page.locator(`button[data-port-id="${port.id}"]`);
+  const cableLine = page.locator(
+    `g[data-connection-id="${linked.connection.id}"]`,
+  );
+  async function showCableEndpoints() {
+    await portButton(eight.ports[0]!).scrollIntoViewIfNeeded();
+    await portButton(router.ports[4]!).scrollIntoViewIfNeeded();
+  }
+  async function assertCableAlignment() {
+    await expect(cableLine).toHaveCount(1);
+    await expect(cableLine).toHaveAttribute(
+      'data-endpoint-a',
+      eight.ports[0]!.id,
+    );
+    await expect(cableLine).toHaveAttribute(
+      'data-endpoint-b',
+      router.ports[4]!.id,
+    );
+    await expect
+      .poll(() =>
+        cableLine.locator('path.cable-overlay-stroke').evaluate(
+          (element, ids) => {
+            const path = element as SVGPathElement;
+            const transform = path.getScreenCTM();
+            if (!transform) return Infinity;
+            const points = [
+              path.getPointAtLength(0),
+              path.getPointAtLength(path.getTotalLength()),
+            ];
+            return Math.max(
+              ...ids.map((id, index) => {
+                const socket = document
+                  .querySelector(
+                    `[id="visual-port-${CSS.escape(id)}"] [data-socket]`,
+                  )!
+                  .getBoundingClientRect();
+                const rendered = points[index]!.matrixTransform(transform);
+                return Math.hypot(
+                  rendered.x - (socket.left + socket.right) / 2,
+                  rendered.y - socket.top,
+                );
+              }),
+            );
+          },
+          [eight.ports[0]!.id, router.ports[4]!.id],
+        ),
+      )
+      .toBeLessThan(1.5);
+  }
   for (const fixture of Object.values(fixtures))
     await expect(
       panel(fixture.device).locator('button[data-port-id]'),
     ).toHaveCount(fixture.ports.length);
+  await showCableEndpoints();
+  await assertCableAlignment();
+  const showCables = page.getByRole('checkbox', {
+    name: 'Show documented connections',
+    exact: true,
+  });
+  await showCables.uncheck();
+  await expect(cableLine).toHaveCount(0);
+  await showCables.check();
+  await assertCableAlignment();
+  const originalViewport = page.viewportSize()!;
+  if (originalViewport.width > 640)
+    await page.setViewportSize({ width: 390, height: originalViewport.height });
+  await showCableEndpoints();
+  await portButton(router.ports[4]!)
+    .locator('xpath=ancestor::*[contains(@class,"visual-panel-scroll")][1]')
+    .evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+  await expect(cableLine).toHaveCount(0);
+  await page.setViewportSize(originalViewport);
+  await showCableEndpoints();
+  await assertCableAlignment();
+  await page.setViewportSize({
+    width: originalViewport.width + 24,
+    height: originalViewport.height,
+  });
+  await showCableEndpoints();
+  await assertCableAlignment();
+  await page.setViewportSize(originalViewport);
+  await showCableEndpoints();
+  await assertCableAlignment();
+  await portButton(eight.ports[1]!).hover();
+  await expect(cableLine).toHaveAttribute('data-dimmed', 'false');
+  await showCables.hover();
+  await expect(cableLine).toHaveAttribute('data-dimmed', 'false');
+  await expect(cableLine).toHaveAttribute('data-highlighted', 'false');
+  const cableHit = cableLine.locator('path.cable-overlay-hit');
+  await cableHit.focus();
+  await expect(page.locator('.cable-overlay-caption')).toContainText(
+    `${deviceNames.eight} / Port 1`,
+  );
+  await cableHit.press('Enter');
+  const cableDialog = page.getByRole('dialog', {
+    name: 'Port inspector',
+    exact: true,
+  });
+  await expect(
+    cableDialog.getByRole('region', { name: 'Cable endpoints', exact: true }),
+  ).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(cableDialog).toHaveCount(0);
+  await expect(portButton(eight.ports[0]!)).toBeFocused();
+  await page.screenshot({
+    path: testInfo.outputPath('visual-cable-overview.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
   const socketDesigns: string[] = [];
   for (const fixture of [eight, twentyFour, fortyEight]) {
     const sockets = panel(fixture.device).locator('svg[data-connector="rj45"]');
@@ -290,6 +400,24 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
   expect(await portButton(router.ports[3]!).getAttribute('data-mode')).toBe(
     'routed',
   );
+  for (const fixture of [twentyFour, fortyEight]) {
+    const front = fixture.ports.filter((port) => port.face === 'front');
+    const first = (await portButton(front[0]!).boundingBox())!;
+    const second = (await portButton(front[1]!).boundingBox())!;
+    const lower = (await portButton(
+      front[Math.ceil(front.length / 2)]!,
+    ).boundingBox())!;
+    expect(second.x).toBeGreaterThan(first.x);
+    expect(second.y).toBeCloseTo(first.y, 0);
+    expect(lower.y).toBeGreaterThan(first.y);
+    expect(
+      (
+        await read<{ ports: Port[] }>(
+          `${root}/devices/${fixture.device.id}/ports`,
+        )
+      ).ports.map((port) => port.id),
+    ).toEqual(fixture.ports.map((port) => port.id));
+  }
   expect(vlans.map((item) => item.color)).not.toContain(
     (
       await portButton(router.ports[3]!)
@@ -301,9 +429,12 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
     await expect(
       panel(router.device).locator(`svg[data-connector="${kind}"]`),
     ).toHaveCount(1);
-  await page
-    .getByRole('combobox', { name: 'Port size', exact: true })
-    .selectOption({ label: 'Compact' });
+  await expect(
+    page.getByRole('combobox', { name: 'Port size', exact: true }),
+  ).toHaveCount(0);
+  expect((await portButton(eight.ports[0]!).boundingBox())!.width).toBe(
+    testInfo.project.name.startsWith('mobile') ? 60 : 80,
+  );
   expect(
     await portButton(fortyEight.ports[0]!)
       .locator('path[data-socket="rj45"]')
@@ -320,27 +451,165 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
     });
   }
 
+  const equipmentGeometry = await panel(eight.device).boundingBox();
   await portButton(eight.ports[0]!).click();
-  const inspector = page.getByRole('complementary', {
+  const inspector = page.getByRole('dialog', {
     name: 'Port inspector',
     exact: true,
   });
   await expect(inspector).toBeVisible();
-  await expect(definition(inspector, 'PVID')).toHaveText('1');
-  await expect(definition(inspector, 'Tagged VLANs')).toContainText('20');
-  await expect(definition(inspector, 'Tagged VLANs')).toContainText('30');
-  await expect(definition(inspector, 'Measured watts')).toHaveText('0');
-  await expect(definition(inspector, 'PoE enabled')).toHaveText(/false/i);
+  await expect(inspector).toHaveAttribute('aria-modal', 'true');
+  await expect(cableLine).toHaveAttribute('data-highlighted', 'true');
+  const cableEndpoints = inspector.getByRole('region', {
+    name: 'Cable endpoints',
+    exact: true,
+  });
+  await expect(cableEndpoints).toBeInViewport();
+  await expect(cableEndpoints).toContainText(`${deviceNames.eight} / Port 1`);
+  await expect(cableEndpoints).toContainText(`${deviceNames.router} / Port 5`);
+  await page.screenshot({
+    path: testInfo.outputPath('visual-cable-endpoints.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  const openedGeometry = await panel(eight.device).boundingBox();
+  expect(openedGeometry!.width).toBeCloseTo(equipmentGeometry!.width, 0);
+  expect(openedGeometry!.height).toBeCloseTo(equipmentGeometry!.height, 0);
+  expect(openedGeometry!.x).toBeCloseTo(equipmentGeometry!.x, 0);
+  await expect(inspector.getByLabel('PVID', { exact: true })).toHaveValue('1');
+  const initialTagged = await openTaggedVlans(page, 'Tagged VLANs');
+  await expect(
+    initialTagged.getByRole('button', { name: 'Remove VLAN 20', exact: true }),
+  ).toBeVisible();
+  await expect(
+    initialTagged.getByRole('button', { name: 'Remove VLAN 30', exact: true }),
+  ).toBeVisible();
+  await initialTagged
+    .getByRole('button', { name: 'Done', exact: true })
+    .click();
+  await expect(
+    inspector.getByLabel('Measured watts', { exact: true }),
+  ).toHaveValue('0');
+  await expect(
+    inspector.getByLabel('PoE enabled', { exact: true }),
+  ).toHaveValue('false');
   await expect(inspector).toContainText(deviceNames.router);
   await expect(inspector).toContainText('Port 5');
-  await expect(inspector).toContainText('Manually documented annotation');
+  await expect(
+    inspector.getByLabel('External destination annotation', { exact: true }),
+  ).toHaveValue('Manually documented annotation');
+  const description = inspector.getByLabel('Description/Notes', {
+    exact: true,
+  });
+  const savePort = inspector.getByRole('button', {
+    name: 'Save port',
+    exact: true,
+  });
+  await description.fill('Saved directly from the faceplate');
+  await selectTaggedVlans(page, 'Tagged VLANs', [vlan(30).id]);
   await inspector
-    .getByRole('button', { name: 'Inspect connected port' })
+    .getByLabel('Native/Untagged VLAN', { exact: true })
+    .selectOption(vlan(20).id);
+  await inspector.locator('.port-drawer-body').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(savePort).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath('visual-editable-port-drawer.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  await inspector.locator('.port-drawer-body').evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(savePort).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath('visual-editable-port-fields.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  await savePort.click();
+  await expect(
+    inspector.getByText('Port saved.', { exact: true }),
+  ).toBeVisible();
+  await expect(inspector).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(`/sites/${site.id}`);
+  const savedPort = (
+    await read<{ ports: Port[] }>(`${root}/devices/${eight.device.id}/ports`)
+  ).ports.find((port) => port.id === eight.ports[0]!.id)!;
+  expect(savedPort.description).toBe('Saved directly from the faceplate');
+  expect(savedPort.pvid).toBe(1);
+  expect(savedPort.nativeVlanRef).toBe(vlan(20).id);
+  expect(savedPort.taggedVlanRefs).toEqual([vlan(30).id]);
+  await page.keyboard.press('Escape');
+  await expect(inspector).toHaveCount(0);
+  await expect(
+    portButton(eight.ports[0]!).locator('[data-vlan-border]'),
+  ).toHaveAttribute('stroke', vlan(20).color!);
+  const nativeBadge = portButton(eight.ports[0]!).locator(
+    `[data-membership="native"][data-vlan-id="${vlan(20).id}"]`,
+  );
+  const taggedBadge = portButton(eight.ports[0]!).locator(
+    `[data-membership="tagged"][data-vlan-id="${vlan(30).id}"]`,
+  );
+  await expect(nativeBadge).toHaveText('VLAN 20');
+  await expect(taggedBadge).toHaveText('Tagged 30');
+  for (const [badge, color] of [
+    [nativeBadge, vlan(20).color!],
+    [taggedBadge, vlan(30).color!],
+  ] as const) {
+    expect(
+      await badge.evaluate((element, expectedColor) => {
+        const swatch = document.createElement('span');
+        swatch.style.borderColor = expectedColor;
+        return (
+          getComputedStyle(element).borderColor === swatch.style.borderColor
+        );
+      }, color),
+    ).toBe(true);
+  }
+  await page.reload();
+  await portButton(eight.ports[0]!).click();
+  await expect(description).toHaveValue('Saved directly from the faceplate');
+  await description.fill('Unsaved drawer edit');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.keyboard.press('Escape');
+  await expect(description).toHaveValue('Unsaved drawer edit');
+  await expect(inspector).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.keyboard.press('Escape');
+  await expect(inspector).toHaveCount(0);
+  await expect(portButton(eight.ports[0]!)).toBeFocused();
+  await portButton(eight.ports[0]!).click();
+  await expect(description).toHaveValue('Saved directly from the faceplate');
+  await description.fill('Preserve stale drawer draft');
+  await write(`${root}/ports/${savedPort.id}`, 'PATCH', {
+    rowVersion: savedPort.rowVersion,
+    description: 'Saved by another drawer client',
+  });
+  await savePort.click();
+  await expect(
+    inspector
+      .getByRole('alert')
+      .filter({ hasText: 'Your edits are preserved' }),
+  ).toBeVisible();
+  await expect(description).toHaveValue('Preserve stale drawer draft');
+  await expect(savePort).toBeDisabled();
+  page.once('dialog', (dialog) => dialog.accept());
+  await inspector
+    .getByRole('button', { name: 'Reload saved port', exact: true })
+    .click();
+  await expect(description).toHaveValue('Saved by another drawer client');
+  await inspector
+    .getByRole('button', {
+      name: `Inspect connected port ${deviceNames.router} Port 5`,
+      exact: true,
+    })
     .click();
   await expect(
     inspector.getByRole('heading', { name: 'Port 5', exact: true }),
   ).toBeVisible();
-  await expect(definition(inspector, 'Documented connection')).toContainText(
+  await expect(definition(inspector, 'Connected to')).toContainText(
     `${deviceNames.eight} / Port 1`,
   );
   await expect(definition(inspector, 'Cable notes')).toHaveText(
@@ -350,9 +619,136 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
   await expect(inspector).toHaveCount(0);
   await expect(portButton(router.ports[4]!)).toBeFocused();
   expect(await page.evaluate(() => 'visualUnsafe' in window)).toBe(false);
-  await portButton(eight.ports[1]!).click();
-  await inspector
-    .getByRole('button', { name: 'Configure this port', exact: true })
+  const beforeDrag = (
+    await read<{ ports: Port[] }>(`${root}/devices/${eight.device.id}/ports`)
+  ).ports;
+  const cablesBeforeDrag = await read(`${root}/connections`);
+  const customBeforeDrag = await read(
+    `${root}/devices/${eight.device.id}/port-values`,
+  );
+  const visualGrip = (port: Port) =>
+    page.getByRole('button', {
+      name: `Reorder ${deviceNames.eight} ${port.name}`,
+      exact: true,
+    });
+  await visualGrip(eight.ports[2]!).dragTo(visualGrip(eight.ports[1]!));
+  const visualOrder = [...beforeDrag];
+  [visualOrder[1], visualOrder[2]] = [visualOrder[2]!, visualOrder[1]!];
+  await expect
+    .poll(async () =>
+      (
+        await read<{ ports: Port[] }>(
+          `${root}/devices/${eight.device.id}/ports`,
+        )
+      ).ports.map((port) => port.id),
+    )
+    .toEqual(visualOrder.map((port) => port.id));
+  const afterDrag = (
+    await read<{ ports: Port[] }>(`${root}/devices/${eight.device.id}/ports`)
+  ).ports;
+  const withoutPosition = (ports: Port[]) =>
+    ports
+      .map(({ orderIndex: _order, rowVersion: _version, ...port }) => port)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  expect(withoutPosition(afterDrag)).toEqual(withoutPosition(beforeDrag));
+  expect(await read(`${root}/connections`)).toEqual(cablesBeforeDrag);
+  expect(await read(`${root}/devices/${eight.device.id}/port-values`)).toEqual(
+    customBeforeDrag,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath('visual-drag-port-order.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  await page.reload();
+  await expect
+    .poll(() =>
+      panel(eight.device)
+        .locator('button[data-port-id]')
+        .evaluateAll((buttons) =>
+          buttons.map((button) => button.getAttribute('data-port-id')),
+        ),
+    )
+    .toEqual(visualOrder.map((port) => port.id));
+  const renumberSummary = panel(eight.device)
+    .locator('summary')
+    .filter({ hasText: /^Renumber ports$/ });
+  await renumberSummary.click();
+  const renumberForm = panel(eight.device).getByRole('form', {
+    name: `Renumber ports on ${deviceNames.eight}`,
+    exact: true,
+  });
+  await renumberForm
+    .getByLabel(`${deviceNames.eight} port name prefix`, { exact: true })
+    .fill('Port ');
+  await renumberForm
+    .getByLabel(`${deviceNames.eight} port start number`, { exact: true })
+    .fill('1');
+  await renumberForm
+    .getByRole('button', { name: 'Preview port names', exact: true })
+    .click();
+  await expect(
+    renumberForm.getByRole('region', {
+      name: 'Port name preview',
+      exact: true,
+    }),
+  ).toContainText('Port 3');
+  expect(
+    (await read<{ ports: Port[] }>(`${root}/devices/${eight.device.id}/ports`))
+      .ports,
+  ).toEqual(afterDrag);
+  await page.screenshot({
+    path: testInfo.outputPath('visual-renumber-preview.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  await renumberForm
+    .getByRole('button', { name: 'Rename ports', exact: true })
+    .click();
+  await expect(
+    page.getByText('Port names saved.', { exact: true }),
+  ).toBeVisible();
+  const renamedVisual = (
+    await read<{ ports: Port[] }>(`${root}/devices/${eight.device.id}/ports`)
+  ).ports;
+  expect(renamedVisual.map((port) => port.id)).toEqual(
+    afterDrag.map((port) => port.id),
+  );
+  expect(renamedVisual.map((port) => port.name)).toEqual(
+    afterDrag.map((_, index) => `Port ${index + 1}`),
+  );
+  const withoutName = (records: Port[]) =>
+    records.map(({ name: _name, rowVersion: _version, ...port }) => port);
+  expect(withoutName(renamedVisual)).toEqual(withoutName(afterDrag));
+  expect(await read(`${root}/connections`)).toEqual(cablesBeforeDrag);
+  expect(await read(`${root}/devices/${eight.device.id}/port-values`)).toEqual(
+    customBeforeDrag,
+  );
+  await page.reload();
+  await expect(portButton(eight.ports[2]!)).toHaveAttribute(
+    'aria-label',
+    new RegExp(`${deviceNames.eight} Port 2,`),
+  );
+  await write(
+    `${root}/ports/bulk-edit`,
+    'POST',
+    {
+      updates: renamedVisual.map((port) => ({
+        portId: port.id,
+        rowVersion: port.rowVersion,
+        changes: {
+          name: afterDrag.find((original) => original.id === port.id)!.name,
+        },
+      })),
+    },
+    200,
+  );
+  await page.reload();
+  await panel(eight.device)
+    .getByRole('button', {
+      name: `Configure ${deviceNames.eight}`,
+      exact: true,
+    })
     .click();
   await expect(
     page.locator('.sidebar-panel a[aria-current="location"]'),
@@ -362,8 +758,10 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
   );
   await expect(
     focusedRow.getByRole('button', { name: 'Port 2 Port', exact: true }),
-  ).toBeFocused();
-  (await gridCell(page, 2, 'Native/Untagged VLAN')).selectOption(vlan(30).id);
+  ).toBeVisible();
+  await (
+    await gridCell(page, 2, 'Native/Untagged VLAN')
+  ).selectOption(vlan(30).id);
   await expect(await gridCell(page, 2, 'PVID')).toHaveValue('20');
   await page
     .getByRole('button', { name: 'Save all changes', exact: true })
@@ -420,6 +818,9 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
   await expect(
     inspector.getByRole('heading', { name: 'Port 48', exact: true }),
   ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(inspector).toHaveCount(0);
+  await expect(portButton(fortyEight.ports.at(-1)!)).toBeFocused();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -432,6 +833,7 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
   await page
     .getByRole('combobox', { name: 'Panel face', exact: true })
     .selectOption({ label: 'Rear' });
+  await expect(cableLine).toHaveCount(0);
   await expect(portButton(twentyFour.ports.at(-1)!)).toBeVisible();
   await page
     .getByRole('combobox', { name: 'Panel face', exact: true })
@@ -439,6 +841,11 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
   await expect(
     panel(twentyFour.device).locator('button[data-port-id]'),
   ).toHaveCount(24);
+  await showCableEndpoints();
+  await assertCableAlignment();
+  const pathBeforeStackMove = await cableLine
+    .locator('path.cable-overlay-stroke')
+    .getAttribute('d');
   await page
     .getByRole('button', {
       name: `Move ${deviceNames.eight} down`,
@@ -449,6 +856,11 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
     'data-device-id',
     twentyFour.device.id,
   );
+  await showCableEndpoints();
+  await assertCableAlignment();
+  await expect(
+    cableLine.locator('path.cable-overlay-stroke'),
+  ).not.toHaveAttribute('d', pathBeforeStackMove!);
   const ordered = (
     await read<{ devices: Device[] }>(`${root}/devices`)
   ).devices.map((item) => item.id);
@@ -508,8 +920,11 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
     .getByRole('button', { name: 'Refresh equipment', exact: true })
     .click();
   await expect(page.getByRole('alert')).toContainText(
-    'Synthetic equipment fetch failure. Use Refresh equipment to try again.',
+    'Synthetic equipment fetch failure.',
   );
+  await expect(
+    page.getByRole('button', { name: 'Refresh equipment', exact: true }),
+  ).toBeEnabled();
   await expect(
     page.getByText('No equipment configured yet.', { exact: true }),
   ).toHaveCount(0);

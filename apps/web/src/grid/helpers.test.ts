@@ -12,6 +12,8 @@ import {
   portTSV,
   rowErrors,
   pasteHeaders,
+  reorderPort,
+  renumberPorts,
 } from './helpers.js';
 import { compactCellText, parseCellMatrix } from './compact.js';
 
@@ -76,6 +78,21 @@ describe('grid data helpers', () => {
         (column) => column.id === 'pvid',
       ),
     ).toBe(true);
+  });
+  it('roundtrips one-based physical order in compact cells and clipboard', () => {
+    expect(compactCellText(port, 'orderIndex', [vlan])).toBe(
+      String(port.orderIndex + 1),
+    );
+    expect(
+      parseCellMatrix('8', [port], port.id, ['orderIndex'], 'orderIndex', [
+        vlan,
+      ])[0]!.orderIndex,
+    ).toBe(7);
+    expect(() =>
+      parseCellMatrix('0', [port], port.id, ['orderIndex'], 'orderIndex', [
+        vlan,
+      ]),
+    ).toThrow();
   });
   it('stages rectangular clipboard edits atomically across canonical rows', () => {
     const second = {
@@ -315,5 +332,95 @@ describe('bounded large port grids', () => {
     expect(portTargetPage(rows, 'port-65')).toBe(1);
     expect(portTargetPage(rows, 'port-512')).toBe(7);
     expect(portTargetPage(rows, 'missing')).toBeNull();
+  });
+});
+
+describe('physical port reordering', () => {
+  const ports = [
+    { ...port, id: 'a', orderIndex: 0 },
+    { ...port, id: 'b', name: 'Port 2', orderIndex: 7, pvid: 30 },
+    { ...port, id: 'c', name: 'Port 3', orderIndex: 42, face: 'rear' as const },
+  ];
+  it('moves stable identities through sparse slots without changing configuration or input', () => {
+    const before = structuredClone(ports);
+    const result = reorderPort(ports, 'c', 0);
+    expect(result.map((port) => [port.id, port.orderIndex])).toEqual([
+      ['c', 0],
+      ['a', 7],
+      ['b', 42],
+    ]);
+    expect(ports).toEqual(before);
+    for (const moved of result)
+      expect({
+        ...moved,
+        orderIndex: before.find((port) => port.id === moved.id)!.orderIndex,
+      }).toEqual(before.find((port) => port.id === moved.id));
+  });
+  it('uses full-device order across page boundaries and can restore the original graph', () => {
+    const many = Array.from({ length: 66 }, (_, index) => ({
+      ...port,
+      id: String(index),
+      orderIndex: index * 2,
+    }));
+    const moved = reorderPort(many, '64', 63);
+    expect(moved[63]!.id).toBe('64');
+    expect(reorderPort(moved, '64', 64)).toEqual(many);
+  });
+  it('rejects missing targets and out-of-range positions instead of moving another port', () => {
+    expect(() => reorderPort(ports, 'missing', 0)).toThrow('unavailable');
+    for (const position of [-1, 3, 1.2])
+      expect(() => reorderPort(ports, 'a', position)).toThrow(
+        'valid port position',
+      );
+    expect(reorderPort(ports, 'a', 0)).toEqual(ports);
+  });
+});
+
+describe('renumbering physical ports', () => {
+  it('previews name swaps without changing identity, sparse order or configuration', () => {
+    const ports = [
+      { ...port, id: 'second', name: 'Port 1', orderIndex: 7 },
+      { ...port, id: 'first', name: 'Port 2', orderIndex: 0 },
+    ];
+    const before = structuredClone(ports);
+    const renamed = renumberPorts(ports, 'Port ', 1);
+    expect(
+      renamed.map((item) => [item.id, item.name, item.orderIndex]),
+    ).toEqual([
+      ['first', 'Port 1', 0],
+      ['second', 'Port 2', 7],
+    ]);
+    for (const item of renamed) {
+      const original = ports.find((candidate) => candidate.id === item.id)!;
+      expect(item).toEqual({ ...original, name: item.name });
+    }
+    expect(ports).toEqual(before);
+  });
+  it('numbers the whole device across pages instead of using sparse slot numbers', () => {
+    const ports = Array.from({ length: 66 }, (_, index) => ({
+      ...port,
+      id: String(index),
+      orderIndex: index * 2,
+    }));
+    const names = renumberPorts(ports.reverse(), 'Interface ', 100);
+    expect(names[0]!.name).toBe('Interface 100');
+    expect(names[64]!.name).toBe('Interface 164');
+    expect(names[65]!.name).toBe('Interface 165');
+    expect(new Set(names.map((item) => item.name)).size).toBe(66);
+  });
+  it('rejects invalid ranges and any overlong proposed name before staging', () => {
+    for (const start of [0, -1, 1.5, Number.NaN, 65536])
+      expect(() => renumberPorts([port], 'Port ', start)).toThrow();
+    expect(() =>
+      renumberPorts([port, { ...port, id: 'other' }], 'Port ', 65535),
+    ).toThrow();
+    expect(() => renumberPorts([port], 'x'.repeat(120), 1)).toThrow();
+    expect(() =>
+      renumberPorts([port, { ...port, id: 'other' }], 'x'.repeat(119), 9),
+    ).toThrow();
+    expect(renumberPorts([port], 'x'.repeat(119), 1)[0]!.name).toHaveLength(
+      120,
+    );
+    expect(renumberPorts([port], '', 1)[0]!.name).toBe('1');
   });
 });

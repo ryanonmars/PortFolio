@@ -1,4 +1,4 @@
-import { gridCell } from './grid-actions.js';
+import { gridCell, selectTaggedVlans } from './grid-actions.js';
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
@@ -435,9 +435,11 @@ test('persistent context navigation, template snapshots and physical/logical con
     name: 'Workflow switch ports',
     exact: true,
   });
-  await expect(compactTable.locator('thead th')).toHaveCount(9);
+  await expect(compactTable.locator('thead th')).toHaveCount(10);
   await expect(
-    compactTable.locator('select,textarea,input:not([type="checkbox"])'),
+    compactTable.locator(
+      'select:visible,textarea:visible,input:not([type="checkbox"]):visible',
+    ),
   ).toHaveCount(0);
   expect(
     await compactTable
@@ -472,14 +474,14 @@ test('persistent context navigation, template snapshots and physical/logical con
   await (
     await gridCell(page, 1, 'Native/Untagged VLAN')
   ).selectOption(vlan20.id);
-  await (await gridCell(page, 1, 'Tagged VLANs')).selectOption([vlan30.id]);
+  await selectTaggedVlans(page, 'Port 1 Tagged VLANs', [vlan30.id]);
   await (await gridCell(page, 2, 'Mode')).selectOption('routed');
   await (await gridCell(page, 2, 'PVID')).fill('20');
   await (await gridCell(page, 3, 'Mode')).selectOption('trunk');
   await (
     await gridCell(page, 3, 'Native/Untagged VLAN')
   ).selectOption(vlan30.id);
-  await (await gridCell(page, 3, 'Tagged VLANs')).selectOption([vlan20.id]);
+  await selectTaggedVlans(page, 'Port 3 Tagged VLANs', [vlan20.id]);
   await page
     .getByRole('button', { name: 'Save all changes', exact: true })
     .click();

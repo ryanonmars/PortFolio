@@ -21,6 +21,7 @@ export async function gridCell(
     'Documented link state',
   ];
   const label = `${name} ${title}`;
+  if (title === 'Tagged VLANs') return openTaggedVlans(page, label);
   if (core.includes(title)) {
     const button = page.getByRole('button', { name: label, exact: true });
     const editor = page
@@ -40,15 +41,48 @@ export async function gridCell(
     !(await inspector.count()) ||
     !(await inspector.getByRole('heading', { name, exact: true }).count())
   ) {
+    const summary = page.locator(`summary[aria-label="Actions for ${name}"]`);
+    if (
+      !(await summary
+        .locator('..')
+        .evaluate((element) => element.hasAttribute('open')))
+    )
+      await summary.click();
     await page
-      .getByRole('checkbox', { name: `Select ${name}`, exact: true })
-      .locator('..')
-      .click({ position: { x: 2, y: 2 } });
+      .getByRole('button', { name: `Details for ${name}`, exact: true })
+      .click();
   }
   await expect(
     inspector.getByRole('heading', { name, exact: true }),
   ).toBeVisible();
   return inspector.getByLabel(label, { exact: true });
+}
+
+export async function openTaggedVlans(page: Page, label: string) {
+  await page.getByRole('button', { name: label, exact: true }).click();
+  const picker = page.getByRole('dialog', {
+    name: `${label} picker`,
+    exact: true,
+  });
+  await expect(picker).toBeVisible();
+  return picker;
+}
+
+export async function selectTaggedVlans(
+  page: Page,
+  label: string,
+  ids: string[],
+) {
+  const picker = await openTaggedVlans(page, label);
+  const clear = picker.getByRole('button', { name: 'Clear all', exact: true });
+  if (await clear.isEnabled()) await clear.click();
+  for (const id of ids) {
+    await picker
+      .getByLabel(`${label} to add`, { exact: true })
+      .selectOption(id);
+    await picker.getByRole('button', { name: 'Add VLAN', exact: true }).click();
+  }
+  await picker.getByRole('button', { name: 'Done', exact: true }).click();
 }
 
 export async function openBulk(page: Page) {

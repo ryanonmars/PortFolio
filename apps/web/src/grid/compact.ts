@@ -17,6 +17,7 @@ export function compactCellText(
 ): string {
   const vlanId = (id: string) =>
     String(vlans.find((vlan) => vlan.id === id)?.vlanId ?? 'Unavailable');
+  if (column === 'orderIndex') return String(port.orderIndex + 1);
   if (column === 'nativeVlanRef')
     return port.nativeVlanRef ? vlanId(port.nativeVlanRef) : '';
   if (column === 'taggedVlanRefs')
@@ -123,7 +124,8 @@ export function parseCellMatrix(
       if (column === 'documentedLinkState')
         parsed = value.toLowerCase().replace(/^documented /, '');
       if (column === 'pvid') parsed = value ? Number(value) : null;
-      if (column === 'orderIndex') parsed = value ? Number(value) : Number.NaN;
+      if (column === 'orderIndex')
+        parsed = value ? Number(value) - 1 : Number.NaN;
       Object.assign(candidate, { [column]: parsed });
     });
     const result = portRecordSchema.safeParse(candidate);

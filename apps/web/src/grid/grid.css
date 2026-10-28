@@ -392,3 +392,117 @@
   margin: 0 0 8px;
   letter-spacing: -0.3px;
 }
+
+.port-reorder-controls {
+  margin: 14px 0;
+}
+.port-reorder-controls label {
+  min-width: 150px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.port-order-inspector h4 {
+  margin: 18px 0 10px;
+}
+.port-order-inspector .grid-actions {
+  gap: 8px;
+  font-size: 12px;
+}
+.port-order-inspector button {
+  padding: 6px 9px;
+}
+
+.port-grid .port-table-scroll table {
+  table-layout: fixed;
+}
+.port-grid table td {
+  height: 38px;
+}
+.port-grid table .compact-cell,
+.port-grid table td input:not([type='checkbox']),
+.port-grid table td select,
+.port-grid table td .tagged-vlan-trigger {
+  box-sizing: border-box;
+  height: 30px;
+  min-height: 30px;
+  max-width: 100%;
+  line-height: 18px;
+  padding: 5px 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.port-grid table :is(input, select, textarea, button):focus-visible {
+  outline: 1px solid #9ac8ab;
+  outline-offset: -1px;
+  box-shadow: none;
+}
+.port-grid table .compact-cell {
+  white-space: nowrap;
+}
+.port-grid table .port-drag-column {
+  width: 38px;
+  min-width: 38px;
+  padding: 3px;
+}
+.port-drag-handle {
+  display: block;
+  width: 30px;
+  height: 30px;
+  padding: 3px;
+  border: 0;
+  background: transparent;
+  color: #90a798;
+  cursor: grab;
+  touch-action: none;
+}
+.port-drag-handle:active {
+  cursor: grabbing;
+}
+.port-grid tr[data-dragging='true'] {
+  opacity: 0.55;
+  outline: 1px dashed #9ac8ab;
+  outline-offset: -1px;
+}
+
+.port-grid table td textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 30px;
+  min-height: 30px;
+  padding: 5px 6px;
+  line-height: 18px;
+  box-sizing: border-box;
+  resize: none;
+}
+
+.port-row-menu[open] {
+  min-width: 0;
+}
+.port-row-actions {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 5;
+  width: 150px;
+  padding: 8px;
+  border: 1px solid #526358;
+  border-radius: 4px;
+  background: #17221b;
+  box-shadow: 0 6px 18px #0006;
+}
+.port-grid .port-row-actions button {
+  width: 100%;
+  margin: 0 0 5px;
+}
+
+.port-name-preview {
+  max-height: 200px;
+  overflow: auto;
+  padding-left: 22px;
+  font-size: 12px;
+  line-height: 1.9;
+}

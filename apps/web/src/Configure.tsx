@@ -142,6 +142,7 @@ export function SiteView({
           siteId={siteId}
           onConfigure={(deviceId, portId) => switchView(true, deviceId, portId)}
           onBusyChange={setBusy}
+          onDirtyChange={setDirty}
         />
       )}
     </section>
@@ -606,6 +607,8 @@ function Devices({
         />
       ) : selected && deviceView === 'detail' ? (
         <DeviceDetail
+          onDirtyChange={controls.onDirtyChange}
+          onBusyChange={controls.onBusyChange}
           siteId={siteId}
           device={selected}
           devices={data.devices}

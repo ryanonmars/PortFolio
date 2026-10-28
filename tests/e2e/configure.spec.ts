@@ -1,4 +1,9 @@
-import { gridCell, openBulk } from './grid-actions.js';
+import {
+  gridCell,
+  openBulk,
+  openTaggedVlans,
+  selectTaggedVlans,
+} from './grid-actions.js';
 import { sidebarAction, sidebarNavigate } from './sidebar-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import type {
@@ -178,11 +183,107 @@ test('configures eight ports in site context with typed values, persistence and 
   const vlans = (await read<{ vlans: Vlan[] }>(`${base}/vlans`)).vlans;
   const vlan = (number: number) =>
     vlans.find((item) => item.vlanId === number)!.id;
+  for (const title of ['Add ports', 'Quick-add VLAN']) {
+    const summary = page
+      .locator('summary')
+      .filter({ hasText: new RegExp(`^${title}$`) });
+    if (
+      await summary
+        .locator('..')
+        .evaluate((element) => element.hasAttribute('open'))
+    )
+      await summary.click();
+  }
+  const geometryRow = page
+    .getByRole('table', { name: `${switchName} ports` })
+    .locator('tbody tr')
+    .first();
+  const restingRow = await geometryRow.boundingBox();
+  const nameEditor = await cell(1, 'Port');
+  const editingRow = await geometryRow.boundingBox();
+  expect(editingRow!.width).toBeCloseTo(restingRow!.width, 0);
+  expect(editingRow!.height).toBeCloseTo(restingRow!.height, 0);
+  expect(
+    await nameEditor.evaluate((element) =>
+      parseFloat(getComputedStyle(element).outlineWidth),
+    ),
+  ).toBeLessThanOrEqual(2);
+  await page.screenshot({
+    path: testInfo.outputPath('configure-editing-cell.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  await nameEditor.press('Enter');
+  const optionalColumns = await openDetails(page, 'Columns');
+  await optionalColumns
+    .getByRole('checkbox', { name: 'Description/Notes', exact: true })
+    .check();
+  const beforeDescription = await geometryRow.boundingBox();
+  await geometryRow
+    .getByRole('button', { name: 'Port 1 Description/Notes', exact: true })
+    .click();
+  const descriptionEditor = geometryRow.getByRole('textbox', {
+    name: 'Port 1 Description/Notes',
+    exact: true,
+  });
+  await expect(descriptionEditor).toBeFocused();
+  expect((await geometryRow.boundingBox())!.height).toBeCloseTo(
+    beforeDescription!.height,
+    0,
+  );
+  expect((await geometryRow.boundingBox())!.width).toBeCloseTo(
+    beforeDescription!.width,
+    0,
+  );
+  await descriptionEditor.press('Escape');
+  await optionalColumns
+    .getByRole('checkbox', { name: 'Description/Notes', exact: true })
+    .uncheck();
   await (await cell(1, 'Mode')).selectOption('trunk');
   await (await cell(1, 'Native/Untagged VLAN')).selectOption(vlan(1));
   await expect(await cell(1, 'PVID')).toHaveValue('');
   await (await cell(1, 'PVID')).fill('1');
-  await (await cell(1, 'Tagged VLANs')).selectOption([vlan(20), vlan(30)]);
+  const beforeTagged = await geometryRow.boundingBox();
+  expect(beforeTagged!.height).toBeCloseTo(restingRow!.height, 0);
+  const taggedPicker = await openTaggedVlans(page, 'Port 1 Tagged VLANs');
+  expect((await geometryRow.boundingBox())!.height).toBeCloseTo(
+    beforeTagged!.height,
+    0,
+  );
+  expect((await geometryRow.boundingBox())!.width).toBeCloseTo(
+    beforeTagged!.width,
+    0,
+  );
+  for (const id of [vlan(20), vlan(30)]) {
+    await taggedPicker
+      .getByLabel('Port 1 Tagged VLANs to add', { exact: true })
+      .selectOption(id);
+    await taggedPicker
+      .getByRole('button', { name: 'Add VLAN', exact: true })
+      .click();
+  }
+  await taggedPicker
+    .getByRole('button', { name: 'Remove VLAN 20', exact: true })
+    .click();
+  await expect(
+    taggedPicker.getByRole('button', { name: 'Remove VLAN 20', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    taggedPicker.getByRole('button', { name: 'Remove VLAN 30', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('configure-tagged-vlans.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  await taggedPicker
+    .getByRole('button', { name: 'Clear all', exact: true })
+    .click();
+  await expect(
+    taggedPicker.getByRole('button', { name: /^Remove VLAN/ }),
+  ).toHaveCount(0);
+  await taggedPicker.getByRole('button', { name: 'Done', exact: true }).click();
+  await selectTaggedVlans(page, 'Port 1 Tagged VLANs', [vlan(20), vlan(30)]);
   await (await cell(1, 'Description/Notes')).fill('Documented trunk uplink');
   await (await cell(2, 'Mode')).selectOption('access');
   await (await cell(2, 'Native/Untagged VLAN')).selectOption(vlan(20));
@@ -234,6 +335,18 @@ test('configures eight ports in site context with typed values, persistence and 
     taggedVlanRefs: [],
   });
   expect(stored.every((port) => port.rowVersion === 2)).toBe(true);
+  await selectTaggedVlans(page, 'Port 1 Tagged VLANs', []);
+  await saveAll(page, 1);
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: 'Port 1 Tagged VLANs', exact: true }),
+  ).toContainText('None');
+  expect((await ports(switchDevice.id))[0]!.taggedVlanRefs).toEqual([]);
+  await selectTaggedVlans(page, 'Port 1 Tagged VLANs', [vlan(20), vlan(30)]);
+  await saveAll(page, 1);
+  expect(new Set((await ports(switchDevice.id))[0]!.taggedVlanRefs)).toEqual(
+    new Set([vlan(20), vlan(30)]),
+  );
   await (await cell(3, 'PVID')).fill('30');
   await saveAll(page, 1);
   await sidebarNavigate(page, 'VLANs');
@@ -702,6 +815,166 @@ test('configures eight ports in site context with typed values, persistence and 
     fullPage: true,
     animations: 'disabled',
   });
+  const beforeReorder = await ports(switchDevice.id);
+  const beforeCables = await read(`${base}/connections`);
+  const beforeValues = await read(
+    `${base}/devices/${switchDevice.id}/port-values`,
+  );
+  await expect(
+    page.getByRole('button', { name: /^Move (?:Port \d+ )?(?:up|down)$/ }),
+  ).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Reorder Port 3', exact: true })
+    .dragTo(page.getByRole('button', { name: 'Reorder Port 2', exact: true }));
+  const expectedOrder = [...beforeReorder];
+  [expectedOrder[1], expectedOrder[2]] = [expectedOrder[2]!, expectedOrder[1]!];
+  const rowIds = () =>
+    page
+      .getByRole('table', { name: `${switchName} ports` })
+      .locator('tbody tr[data-port-id]')
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute('data-port-id')),
+      );
+  await expect.poll(rowIds).toEqual(expectedOrder.map((port) => port.id));
+  await expect(
+    page.getByRole('button', { name: 'Save all changes', exact: true }),
+  ).toBeEnabled();
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await sidebarNavigate(page, 'Visual Overview', true);
+  const reorderMenu = page.getByRole('button', { name: 'Menu', exact: true });
+  if (
+    (await reorderMenu.isVisible()) &&
+    (await reorderMenu.getAttribute('aria-expanded')) === 'true'
+  )
+    await reorderMenu.click();
+  await expect.poll(rowIds).toEqual(expectedOrder.map((port) => port.id));
+  await page.screenshot({
+    path: testInfo.outputPath('configure-reorder-ports.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await saveAll(page, 2);
+  const afterReorder = await ports(switchDevice.id);
+  expect(afterReorder.map((port) => port.id)).toEqual(
+    expectedOrder.map((port) => port.id),
+  );
+  const withoutOrder = (records: Port[]) =>
+    records
+      .map(({ orderIndex: _order, rowVersion: _version, ...port }) => port)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  expect(withoutOrder(afterReorder)).toEqual(withoutOrder(beforeReorder));
+  expect(await read(`${base}/connections`)).toEqual(beforeCables);
+  expect(await read(`${base}/devices/${switchDevice.id}/port-values`)).toEqual(
+    beforeValues,
+  );
+  await page.reload();
+  await expect.poll(rowIds).toEqual(expectedOrder.map((port) => port.id));
+  const renumber = await openDetails(page, 'Renumber ports');
+  await renumber
+    .getByLabel('Renumber name prefix', { exact: true })
+    .fill('Interface ');
+  await renumber
+    .getByLabel('Renumber start number', { exact: true })
+    .fill('10');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await sidebarNavigate(page, 'Visual Overview', true);
+  const renameMenu = page.getByRole('button', { name: 'Menu', exact: true });
+  if (
+    (await renameMenu.isVisible()) &&
+    (await renameMenu.getAttribute('aria-expanded')) === 'true'
+  )
+    await renameMenu.click();
+  await expect(
+    renumber.getByLabel('Renumber name prefix', { exact: true }),
+  ).toHaveValue('Interface ');
+  await expect(
+    renumber.getByLabel('Renumber start number', { exact: true }),
+  ).toHaveValue('10');
+  expect(await ports(switchDevice.id)).toEqual(afterReorder);
+  await renumber
+    .getByRole('button', { name: 'Reset numbering', exact: true })
+    .click();
+  await expect(
+    renumber.getByLabel('Renumber name prefix', { exact: true }),
+  ).toHaveValue('Port ');
+  await expect(
+    renumber.getByLabel('Renumber start number', { exact: true }),
+  ).toHaveValue('1');
+  await expect(
+    page.getByRole('button', { name: 'Save all changes', exact: true }),
+  ).toBeDisabled();
+  await renumber
+    .getByLabel('Renumber name prefix', { exact: true })
+    .fill('Port ');
+  await renumber.getByLabel('Renumber start number', { exact: true }).fill('1');
+  await expect(
+    renumber.getByRole('list', { name: 'Port renumber preview', exact: true }),
+  ).toContainText('Port 3');
+  expect(await ports(switchDevice.id)).toEqual(afterReorder);
+  await renumber
+    .getByRole('button', { name: 'Stage port names', exact: true })
+    .click();
+  await expect.poll(rowIds).toEqual(expectedOrder.map((port) => port.id));
+  expect(await ports(switchDevice.id)).toEqual(afterReorder);
+  await page.screenshot({
+    path: testInfo.outputPath('configure-renumber-ports.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+  await saveAll(page, 2);
+  const renumbered = await ports(switchDevice.id);
+  expect(renumbered.map((port) => port.id)).toEqual(
+    afterReorder.map((port) => port.id),
+  );
+  expect(renumbered.map((port) => port.name)).toEqual(
+    afterReorder.map((_, index) => `Port ${index + 1}`),
+  );
+  const withoutNames = (records: Port[]) =>
+    records.map(({ name: _name, rowVersion: _version, ...port }) => port);
+  expect(withoutNames(renumbered)).toEqual(withoutNames(afterReorder));
+  expect(await read(`${base}/connections`)).toEqual(beforeCables);
+  expect(await read(`${base}/devices/${switchDevice.id}/port-values`)).toEqual(
+    beforeValues,
+  );
+  await page.reload();
+  await expect(
+    page
+      .locator(`tr[data-port-id="${afterReorder[1]!.id}"]`)
+      .getByRole('button', { name: 'Port 2 Port', exact: true }),
+  ).toBeVisible();
+  const renameSession = await (
+    await page.request.get('/api/v1/auth/session')
+  ).json();
+  const restoredNames = await page.request.post(`${base}/ports/bulk-edit`, {
+    headers: {
+      Origin: new URL(siteUrl).origin,
+      'x-csrf-token': renameSession.csrfToken,
+    },
+    data: {
+      updates: renumbered.map((port) => ({
+        portId: port.id,
+        rowVersion: port.rowVersion,
+        changes: {
+          name: afterReorder.find((original) => original.id === port.id)!.name,
+        },
+      })),
+    },
+  });
+  expect(restoredNames.status()).toBe(200);
+  await page.reload();
+  await sidebarNavigate(page, 'Visual Overview');
+  await expect
+    .poll(() =>
+      page
+        .locator(
+          `article[data-device-id="${switchDevice.id}"] button[data-port-id]`,
+        )
+        .evaluateAll((buttons) =>
+          buttons.map((button) => button.getAttribute('data-port-id')),
+        ),
+    )
+    .toEqual(expectedOrder.map((port) => port.id));
+  await sidebarNavigate(page, 'Equipment');
   const denseDeviceName = 'QA 48-port switch';
   await createDevice(page, denseDeviceName);
   await openDetails(page, 'Add ports');

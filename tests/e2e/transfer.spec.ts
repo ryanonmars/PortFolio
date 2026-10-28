@@ -318,24 +318,20 @@ test('downloads a complete archive and previews, copies and explicitly replaces 
     await expect(target.locator('button[data-port-id]')).toHaveCount(8);
     const first = copyArchive.ports.find((port) => port.name === 'Port 1')!;
     await target.locator(`button[data-port-id="${first.id}"]`).click();
-    const inspector = target.getByRole('complementary', {
+    const inspector = target.getByRole('dialog', {
       name: 'Port inspector',
       exact: true,
     });
     await expect(inspector).toContainText('Preserve this cable');
     await expect(
-      inspector
-        .locator('dt')
-        .filter({ hasText: /^Measured watts$/ })
-        .locator('xpath=following-sibling::dd[1]'),
-    ).toHaveText('0');
+      inspector.getByLabel('Measured watts', { exact: true }),
+    ).toHaveValue('0');
     await expect(
-      inspector
-        .locator('dt')
-        .filter({ hasText: /^PoE enabled$/ })
-        .locator('xpath=following-sibling::dd[1]'),
-    ).toHaveText(/^false$/i);
+      inspector.getByLabel('PoE enabled', { exact: true }),
+    ).toHaveValue('false');
     expect(await target.evaluate(() => 'transferUnsafe' in window)).toBe(false);
+    await target.keyboard.press('Escape');
+    await expect(inspector).toHaveCount(0);
   }
   await assertVisual(page);
   await page.reload();
