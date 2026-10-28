@@ -1,0 +1,1598 @@
+import {
+  memo,
+  useMemo,
+  useId,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type DragEvent as ReactDragEvent,
+} from 'react';
+import {
+  resolveBoardPortColor,
+  networkEntrySummary,
+  type BoardDocument,
+  BoardElement,
+  BoardPort,
+  BoardViewport,
+  JsonValue,
+} from '../../../../packages/shared/src/board.js';
+import { makeBoardPort } from './commands.js';
+import { Connector } from '../visual/Connector.js';
+import {
+  activeFace,
+  cableCurve,
+  cableHitPath,
+  clamp,
+  DEVICE_HEADER,
+  DEVICE_PADDING,
+  fitViewport,
+  getPortPoint,
+  minimumDeviceSize,
+  PORT_HEIGHT,
+  PORT_WIDTH,
+  portGap,
+  portRect,
+  resizeRect,
+  screenToWorld,
+  snapRect,
+  zoomViewport,
+  type Guide,
+  type Point,
+} from './geometry.js';
+import './canvas.css';
+export { fitViewport, getPortPoint, minimumDeviceSize } from './geometry.js';
+export type BoardSelection = { type: 'element' | 'port' | 'cable'; id: string };
+export interface BoardCanvasProps {
+  document: BoardDocument;
+  selection: BoardSelection | null;
+  tool: 'select' | 'pan' | 'cable' | 'ports';
+  disabled: boolean;
+  onChange: (document: BoardDocument, label: string) => void;
+  onSelect: (selection: BoardSelection | null) => void;
+  onGestureChange?: (active: boolean) => void;
+  fitToken?: number;
+}
+type Gesture = {
+  type: 'pan' | 'move' | 'resize' | 'port';
+  pointer: number;
+  start: Point;
+  base: BoardDocument;
+  id?: string;
+  handle?: string;
+  moved: boolean;
+};
+type Rename = { type: 'element' | 'port'; id: string; value: string };
+const MemoConnector = memo(Connector);
+const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+const text = (value: JsonValue | undefined) =>
+  typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+function portSummary(port: BoardPort) {
+  return [
+    port.name,
+    port.role,
+    {
+      rj45: 'RJ45',
+      sfp: 'SFP',
+      sfp_plus: 'SFP+',
+      qsfp: 'QSFP',
+      other: 'Custom',
+    }[port.kind],
+    port.speed,
+    port.linkState ? `Documented ${port.linkState}` : '',
+    port.pvid ? `PVID ${port.pvid}` : '',
+    port.address,
+    port.nativeVlan ? `Native VLAN ${port.nativeVlan}` : '',
+    port.taggedVlans.length ? `Tagged ${port.taggedVlans.join(', ')}` : '',
+    port.externalDestination,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+export function BoardCanvas(props: BoardCanvasProps) {
+  const {
+    document,
+    selection,
+    tool,
+    disabled,
+    onChange,
+    onSelect,
+    onGestureChange,
+    fitToken,
+  } = props;
+  const root = useRef<HTMLDivElement>(null);
+  const latest = useRef(props);
+  const gesture = useRef<Gesture | null>(null);
+  const previewRef = useRef<BoardDocument | null>(null);
+  const [preview, setPreview] = useState<BoardDocument | null>(null);
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [notice, setNotice] = useState('');
+  const [rename, setRename] = useState<Rename | null>(null);
+  const [sourcePort, setSourcePort] = useState<string | null>(null);
+  const [hoverPort, setHoverPort] = useState<string | null>(null);
+  const [touchSummary, setTouchSummary] = useState<string | null>(null);
+  const summaryId = useId();
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hold = useRef<{ pointer: number; portId: string; start: Point } | null>(
+    null,
+  );
+  const suppressHoldClick = useRef<string | null>(null);
+  const lastPointerType = useRef('keyboard');
+  const pointers = useRef(new Map<number, Point>());
+  const pinch = useRef<{
+    distance: number;
+    viewport: BoardViewport;
+    center: Point;
+  } | null>(null);
+  const wheelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wheelViewport = useRef<BoardViewport | null>(null);
+  const lastFit = useRef(fitToken);
+  const suppressClickUntil = useRef(0);
+  function cancelHold() {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    hold.current = null;
+  }
+  function startHold(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    port: BoardPort,
+  ) {
+    if (event.pointerType !== 'touch' || tool !== 'select' || disabled) return;
+    cancelHold();
+    hold.current = {
+      pointer: event.pointerId,
+      portId: port.id,
+      start: { x: event.clientX, y: event.clientY },
+    };
+    holdTimer.current = setTimeout(() => {
+      const candidate = hold.current;
+      if (
+        !candidate ||
+        latest.current.disabled ||
+        latest.current.tool !== 'select' ||
+        pointers.current.size !== 1 ||
+        gesture.current ||
+        pinch.current
+      )
+        return;
+      suppressHoldClick.current = candidate.portId;
+      setTouchSummary(candidate.portId);
+      setHoverPort(null);
+      holdTimer.current = null;
+    }, 450);
+  }
+  useEffect(() => {
+    const keyboard = () => {
+      lastPointerType.current = 'keyboard';
+    };
+    window.addEventListener('keydown', keyboard, true);
+    return () => {
+      window.removeEventListener('keydown', keyboard, true);
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      hold.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    hold.current = null;
+    suppressHoldClick.current = null;
+    const frame = requestAnimationFrame(() => {
+      setTouchSummary(null);
+      setHoverPort(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [tool, disabled]);
+  useEffect(() => {
+    latest.current = props;
+  }, [props]);
+  function showPreview(next: BoardDocument | null) {
+    previewRef.current = next;
+    setPreview(next);
+  }
+  function local(event: { clientX: number; clientY: number }): Point {
+    const box = root.current!.getBoundingClientRect();
+    return { x: event.clientX - box.left, y: event.clientY - box.top };
+  }
+  function finishViewport() {
+    if (wheelTimer.current) clearTimeout(wheelTimer.current);
+    wheelTimer.current = null;
+    const next = wheelViewport.current;
+    wheelViewport.current = null;
+    if (next) {
+      latest.current.onChange(
+        { ...latest.current.document, viewport: next },
+        'Viewport',
+      );
+      previewRef.current = null;
+      setPreview(null);
+      latest.current.onGestureChange?.(false);
+    }
+  }
+  function cancelGesture() {
+    cancelHold();
+    setTouchSummary(null);
+    gesture.current = null;
+    pinch.current = null;
+    pointers.current.clear();
+    showPreview(null);
+    setGuides([]);
+    onGestureChange?.(false);
+  }
+  useEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    function wheel(event: WheelEvent) {
+      const current = latest.current;
+      if (current.disabled || gesture.current || pinch.current) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest('input,textarea,select,[contenteditable="true"]')
+      )
+        return;
+      event.preventDefault();
+      const box = element!.getBoundingClientRect();
+      const point = { x: event.clientX - box.left, y: event.clientY - box.top };
+      const old = wheelViewport.current ?? current.document.viewport;
+      const next =
+        event.ctrlKey || event.metaKey
+          ? zoomViewport(old, point, old.zoom * Math.exp(-event.deltaY * 0.008))
+          : {
+              ...old,
+              x: clamp(old.x - event.deltaX, -100000, 100000),
+              y: clamp(old.y - event.deltaY, -100000, 100000),
+            };
+      wheelViewport.current = next;
+      previewRef.current = { ...current.document, viewport: next };
+      setPreview(previewRef.current);
+      current.onGestureChange?.(true);
+      if (wheelTimer.current) clearTimeout(wheelTimer.current);
+      wheelTimer.current = setTimeout(() => {
+        const viewport = wheelViewport.current;
+        wheelViewport.current = null;
+        wheelTimer.current = null;
+        if (viewport)
+          latest.current.onChange(
+            { ...latest.current.document, viewport },
+            'Viewport',
+          );
+        previewRef.current = null;
+        setPreview(null);
+        latest.current.onGestureChange?.(false);
+      }, 180);
+    }
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => {
+      element.removeEventListener('wheel', wheel);
+      if (wheelTimer.current) clearTimeout(wheelTimer.current);
+      latest.current.onGestureChange?.(false);
+    };
+  }, []);
+  useEffect(() => {
+    if (fitToken === undefined || fitToken === lastFit.current) return;
+    lastFit.current = fitToken;
+    const element = root.current;
+    if (!element) return;
+    onChange(
+      {
+        ...document,
+        viewport: fitViewport(
+          document,
+          element.clientWidth,
+          element.clientHeight,
+        ),
+      },
+      'Viewport',
+    );
+  }, [fitToken, document, onChange]);
+  useEffect(() => {
+    if (tool === 'cable') return;
+    const frame = requestAnimationFrame(() => {
+      setSourcePort(null);
+      setNotice('');
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [tool]);
+  useEffect(() => {
+    if (!disabled) return;
+    const frame = requestAnimationFrame(() => {
+      gesture.current = null;
+      pinch.current = null;
+      pointers.current.clear();
+      previewRef.current = null;
+      setPreview(null);
+      setGuides([]);
+      latest.current.onGestureChange?.(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [disabled]);
+  useEffect(() => {
+    if (rename) latest.current.onGestureChange?.(true);
+    else if (!gesture.current && !pinch.current && !wheelViewport.current)
+      latest.current.onGestureChange?.(false);
+  }, [rename]);
+  const visible = preview ?? document;
+  const viewport = visible.viewport;
+  const lookups = useMemo(() => {
+    const ports = new Map(visible.ports.map((port) => [port.id, port]));
+    const elements = new Map(
+      visible.elements.map((element) => [element.id, element]),
+    );
+    const peers = new Map<string, string>();
+    for (const cable of visible.cables) {
+      peers.set(cable.sourcePortId, cable.targetPortId);
+      peers.set(cable.targetPortId, cable.sourcePortId);
+    }
+    return { ports, elements, peers };
+  }, [visible.ports, visible.elements, visible.cables]);
+  function summaryFor(port: BoardPort) {
+    const peer = lookups.ports.get(lookups.peers.get(port.id) ?? '');
+    return (
+      portSummary(port) +
+      (peer
+        ? ` · Connected: ${lookups.elements.get(peer.deviceId)?.name ?? 'Device'} / ${peer.name}`
+        : '')
+    );
+  }
+
+  const summaryPort =
+    !disabled && !preview && !rename && tool !== 'pan'
+      ? visible.ports.find((port) => port.id === (touchSummary ?? hoverPort))
+      : undefined;
+  const summaryPoint = summaryPort
+    ? getPortPoint(visible, summaryPort.id)
+    : null;
+  function begin(
+    event: ReactPointerEvent<HTMLElement>,
+    type: Gesture['type'],
+    id?: string,
+    handle?: string,
+  ) {
+    if (disabled || (event.button !== 0 && event.button !== 1)) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest('input,textarea,select')
+    )
+      return;
+    const base = wheelViewport.current
+      ? { ...latest.current.document, viewport: wheelViewport.current }
+      : latest.current.document;
+    finishViewport();
+    event.preventDefault();
+    event.stopPropagation();
+    root.current?.focus({ preventScroll: true });
+    root.current?.setPointerCapture(event.pointerId);
+    gesture.current = {
+      type,
+      pointer: event.pointerId,
+      start: local(event),
+      base,
+      id,
+      handle,
+      moved: false,
+    };
+    if (type === 'move' || type === 'resize')
+      onSelect({ type: 'element', id: id! });
+    if (type === 'port') onSelect({ type: 'port', id: id! });
+    onGestureChange?.(true);
+  }
+  function capturePointer(event: ReactPointerEvent<HTMLDivElement>) {
+    lastPointerType.current = event.pointerType;
+    cancelHold();
+    suppressHoldClick.current = null;
+    setTouchSummary(null);
+    if (event.pointerType === 'touch') setHoverPort(null);
+    if (
+      disabled ||
+      (event.target instanceof Element &&
+        event.target.closest('input,textarea,select'))
+    )
+      return;
+    const point = local(event);
+    pointers.current.set(event.pointerId, point);
+    if (event.pointerType === 'touch' && pointers.current.size === 2) {
+      event.preventDefault();
+      root.current?.setPointerCapture(event.pointerId);
+      const [a, b] = [...pointers.current.values()];
+      gesture.current = null;
+      suppressClickUntil.current = event.timeStamp + 500;
+      pinch.current = {
+        distance: Math.hypot(b!.x - a!.x, b!.y - a!.y),
+        viewport: visible.viewport,
+        center: { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 },
+      };
+      onGestureChange?.(true);
+      event.stopPropagation();
+      return;
+    }
+  }
+  function pointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (
+      disabled ||
+      (event.target instanceof Element &&
+        event.target.closest('input,textarea,select'))
+    )
+      return;
+    const background =
+      event.target === event.currentTarget ||
+      (event.target instanceof Element &&
+        Boolean(event.target.closest('[data-board-background]')));
+    if (
+      tool === 'pan' ||
+      root.current?.classList.contains('space-pan') ||
+      event.button === 1 ||
+      (event.shiftKey && background)
+    ) {
+      begin(event, 'pan');
+      return;
+    }
+    if (background) {
+      onSelect(null);
+      if (event.pointerType === 'touch') begin(event, 'pan');
+    }
+  }
+  function pointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const candidate = hold.current;
+    if (
+      candidate &&
+      candidate.pointer === event.pointerId &&
+      Math.hypot(
+        event.clientX - candidate.start.x,
+        event.clientY - candidate.start.y,
+      ) > 8
+    ) {
+      suppressHoldClick.current = candidate.portId;
+      cancelHold();
+      setTouchSummary(null);
+    }
+    const point = local(event);
+    if (pointers.current.has(event.pointerId))
+      pointers.current.set(event.pointerId, point);
+    if (pinch.current && pointers.current.size >= 2) {
+      const [a, b] = [...pointers.current.values()];
+      const distance = Math.hypot(b!.x - a!.x, b!.y - a!.y);
+      const center = { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
+      const zoomed = zoomViewport(
+        pinch.current.viewport,
+        pinch.current.center,
+        (pinch.current.viewport.zoom * distance) /
+          Math.max(1, pinch.current.distance),
+      );
+      showPreview({
+        ...document,
+        viewport: {
+          ...zoomed,
+          x: clamp(
+            zoomed.x + center.x - pinch.current.center.x,
+            -100000,
+            100000,
+          ),
+          y: clamp(
+            zoomed.y + center.y - pinch.current.center.y,
+            -100000,
+            100000,
+          ),
+        },
+      });
+      return;
+    }
+    const active = gesture.current;
+    if (!active || active.pointer !== event.pointerId) return;
+    const dx = (point.x - active.start.x) / active.base.viewport.zoom,
+      dy = (point.y - active.start.y) / active.base.viewport.zoom;
+    if (Math.abs(dx) + Math.abs(dy) < 2 && !active.moved) return;
+    active.moved = true;
+    suppressClickUntil.current = event.timeStamp + 500;
+    if (active.type === 'pan') {
+      showPreview({
+        ...active.base,
+        viewport: {
+          ...active.base.viewport,
+          x: clamp(
+            active.base.viewport.x + point.x - active.start.x,
+            -100000,
+            100000,
+          ),
+          y: clamp(
+            active.base.viewport.y + point.y - active.start.y,
+            -100000,
+            100000,
+          ),
+        },
+      });
+      return;
+    }
+    if (active.type === 'move' || active.type === 'resize') {
+      const element = active.base.elements.find(
+        (item) => item.id === active.id,
+      );
+      if (!element) return;
+      let next: BoardElement;
+      if (active.type === 'move') {
+        const snapped = snapRect(
+          { ...element, x: element.x + dx, y: element.y + dy },
+          active.base.elements.filter((item) => item.id !== element.id),
+          active.base.viewport.zoom,
+          event.altKey,
+        );
+        next = { ...element, ...snapped.rect };
+        setGuides(snapped.guides);
+      } else {
+        const minimum = minimumDeviceSize(element, active.base.ports),
+          handle = active.handle!;
+        const rect = resizeRect(
+          element,
+          handle,
+          { x: dx, y: dy },
+          minimum,
+          true,
+        );
+        const edge = {
+          x: handle.includes('w') ? rect.x : rect.x + rect.width,
+          y: handle.includes('n') ? rect.y : rect.y + rect.height,
+          width: 0,
+          height: 0,
+        };
+        const snap = snapRect(
+          edge,
+          active.base.elements.filter((item) => item.id !== element.id),
+          active.base.viewport.zoom,
+          event.altKey,
+        );
+        let left = rect.x,
+          top = rect.y,
+          right = rect.x + rect.width,
+          bottom = rect.y + rect.height;
+        if (handle.includes('w'))
+          left = Math.min(right - minimum.width, snap.rect.x);
+        if (handle.includes('e'))
+          right = Math.max(left + minimum.width, snap.rect.x);
+        if (handle.includes('n'))
+          top = Math.min(bottom - minimum.height, snap.rect.y);
+        if (handle.includes('s'))
+          bottom = Math.max(top + minimum.height, snap.rect.y);
+        next = {
+          ...element,
+          x: left,
+          y: top,
+          width: Math.min(20000, right - left),
+          height: Math.min(20000, bottom - top),
+        };
+        setGuides(
+          snap.guides.filter((guide) =>
+            guide.axis === 'x'
+              ? handle.includes('e') || handle.includes('w')
+              : handle.includes('n') || handle.includes('s'),
+          ),
+        );
+      }
+      showPreview({
+        ...active.base,
+        elements: active.base.elements.map((item) =>
+          item.id === next.id ? next : item,
+        ),
+      });
+      return;
+    }
+    const port = active.base.ports.find((item) => item.id === active.id);
+    const element = active.base.elements.find(
+      (item) => item.id === port?.deviceId,
+    );
+    if (!port || !element) return;
+    const gap = portGap(element);
+    const column = clamp(
+      Math.round(port.column + dx / (PORT_WIDTH + gap)),
+      0,
+      127,
+    );
+    const row = clamp(Math.round(port.row + dy / (PORT_HEIGHT + gap)), 0, 127);
+    const occupied = active.base.ports.some(
+      (item) =>
+        item.id !== port.id &&
+        item.deviceId === port.deviceId &&
+        item.face === port.face &&
+        item.row === row &&
+        item.column === column,
+    );
+    const rect = portRect(element, { row, column });
+    const fits =
+      rect.x + rect.width <= element.x + element.width - DEVICE_PADDING &&
+      rect.y + rect.height <= element.y + element.height - DEVICE_PADDING;
+    if (occupied || !fits) {
+      setNotice(
+        occupied
+          ? 'That port slot is occupied.'
+          : 'Resize the device to make room for that slot.',
+      );
+      showPreview(active.base);
+      return;
+    }
+    setNotice('');
+    showPreview({
+      ...active.base,
+      ports: active.base.ports.map((item) =>
+        item.id === port.id ? { ...item, row, column } : item,
+      ),
+    });
+  }
+  function pointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    cancelHold();
+    pointers.current.delete(event.pointerId);
+    if (pinch.current) {
+      suppressClickUntil.current = event.timeStamp + 500;
+      const next = previewRef.current;
+      pinch.current = null;
+      pointers.current.clear();
+      showPreview(null);
+      if (next) onChange({ ...document, viewport: next.viewport }, 'Viewport');
+      onGestureChange?.(false);
+      return;
+    }
+    const active = gesture.current;
+    if (!active || active.pointer !== event.pointerId) return;
+    gesture.current = null;
+    setGuides([]);
+    const next = previewRef.current;
+    showPreview(null);
+    onGestureChange?.(false);
+    if (!next || !active.moved) return;
+    if (active.type === 'pan') {
+      onChange({ ...document, viewport: next.viewport }, 'Viewport');
+      return;
+    }
+    if (active.type === 'port') {
+      const changed = next.ports.find((item) => item.id === active.id);
+      if (!changed) return;
+      const old = active.base.ports.find((item) => item.id === active.id);
+      if (old?.row === changed.row && old.column === changed.column) return;
+      onChange(
+        {
+          ...document,
+          ports: document.ports.map((item) =>
+            item.id === changed.id
+              ? { ...item, row: changed.row, column: changed.column }
+              : item,
+          ),
+        },
+        'Move port',
+      );
+      return;
+    }
+    const changed = next.elements.find((item) => item.id === active.id);
+    if (!changed) return;
+    onChange(
+      {
+        ...document,
+        elements: document.elements.map((item) =>
+          item.id === changed.id
+            ? {
+                ...item,
+                x: changed.x,
+                y: changed.y,
+                width: changed.width,
+                height: changed.height,
+              }
+            : item,
+        ),
+      },
+      active.type === 'resize' ? 'Resize object' : 'Move object',
+    );
+  }
+  function selectPort(port: BoardPort) {
+    if (disabled) return;
+    if (tool !== 'cable') {
+      onSelect({ type: 'port', id: port.id });
+      return;
+    }
+    if (!sourcePort) {
+      setSourcePort(port.id);
+      setNotice('Choose the other cable endpoint.');
+      return;
+    }
+    if (sourcePort === port.id) {
+      setSourcePort(null);
+      setNotice('Cable cancelled.');
+      return;
+    }
+    if (
+      document.cables.some((cable) =>
+        [cable.sourcePortId, cable.targetPortId].some(
+          (id) => id === sourcePort || id === port.id,
+        ),
+      )
+    ) {
+      setNotice(
+        'A selected port already has a cable. Select that cable to remove it first.',
+      );
+      return;
+    }
+    const cable = {
+      id: crypto.randomUUID(),
+      sourcePortId: sourcePort,
+      targetPortId: port.id,
+      name: '',
+      cableType: '',
+      sourceConnector: '',
+      targetConnector: '',
+      color: '',
+      length: '',
+      notes: '',
+    };
+    onChange({ ...document, cables: [...document.cables, cable] }, 'Add cable');
+    onSelect({ type: 'cable', id: cable.id });
+    setSourcePort(null);
+    setNotice('Cable added.');
+  }
+  function commitName() {
+    if (!rename) return;
+    const current = rename;
+    setRename(null);
+    if (current.type === 'element')
+      onChange(
+        {
+          ...document,
+          elements: document.elements.map((item) =>
+            item.id === current.id ? { ...item, name: current.value } : item,
+          ),
+        },
+        'Rename object',
+      );
+    else
+      onChange(
+        {
+          ...document,
+          ports: document.ports.map((item) =>
+            item.id === current.id ? { ...item, name: current.value } : item,
+          ),
+        },
+        'Rename port',
+      );
+  }
+  function dropConnector(
+    event: ReactDragEvent<HTMLElement>,
+    element: BoardElement,
+  ) {
+    if (disabled || element.type !== 'device' || gesture.current) return;
+    const raw = event.dataTransfer.getData('application/x-portfolio-port-kind');
+    if (!raw) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      const payload = JSON.parse(raw) as {
+        kind: BoardPort['kind'];
+        deviceId?: string;
+      };
+      if (!['rj45', 'sfp', 'sfp_plus', 'qsfp', 'other'].includes(payload.kind))
+        throw new Error('Choose a connector type.');
+      if (
+        document.ports.filter((port) => port.deviceId === element.id).length >=
+        512
+      )
+        throw new Error('This device already has 512 ports.');
+      const point = screenToWorld(local(event), viewport);
+      const gap = portGap(element);
+      const face = activeFace(element);
+      const column = clamp(
+        Math.round(
+          (point.x - element.x - DEVICE_PADDING - PORT_WIDTH / 2) /
+            (PORT_WIDTH + gap),
+        ),
+        0,
+        127,
+      );
+      const row = clamp(
+        Math.round(
+          (point.y -
+            element.y -
+            DEVICE_HEADER -
+            DEVICE_PADDING -
+            PORT_HEIGHT / 2) /
+            (PORT_HEIGHT + gap),
+        ),
+        0,
+        127,
+      );
+      if (
+        document.ports.some(
+          (port) =>
+            port.deviceId === element.id &&
+            port.face === face &&
+            port.row === row &&
+            port.column === column,
+        )
+      )
+        throw new Error('That port slot is occupied.');
+      const port = makeBoardPort(
+        element.id,
+        payload.kind,
+        row,
+        column,
+        `Port ${document.ports.filter((port) => port.deviceId === element.id).length + 1}`,
+        face,
+      );
+      const ports = [...document.ports, port];
+      const minimum = minimumDeviceSize(element, ports);
+      onChange(
+        {
+          ...document,
+          ports,
+          elements: document.elements.map((item) =>
+            item.id === element.id
+              ? {
+                  ...item,
+                  width: Math.max(item.width, minimum.width),
+                  height: Math.max(item.height, minimum.height),
+                }
+              : item,
+          ),
+        },
+        'Add port',
+      );
+      onSelect({ type: 'port', id: port.id });
+      setNotice('');
+    } catch (cause) {
+      setNotice(
+        cause instanceof Error
+          ? cause.message
+          : 'The port could not be placed.',
+      );
+    }
+  }
+  function inlineName(type: Rename['type'], id: string, name: string) {
+    if (rename?.type === type && rename.id === id)
+      return (
+        <input
+          autoFocus
+          aria-label={type === 'element' ? 'Object name' : 'Port name'}
+          className="board-inline-name"
+          maxLength={240}
+          value={rename.value}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) =>
+            setRename({ ...rename, value: event.target.value })
+          }
+          onBlur={commitName}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commitName();
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              setRename(null);
+            }
+          }}
+        />
+      );
+    return (
+      <span
+        className={
+          type === 'element' ? 'board-element-name' : 'board-port-name'
+        }
+        title={name}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-label={`Rename ${type === 'element' ? 'object' : 'port'} ${name}`}
+        onPointerDown={(event) => {
+          // A label is an editing target. Capturing its pointer on the canvas
+          // retargets pointerup/click and prevents the native double-click.
+          if (tool !== 'pan' && !root.current?.classList.contains('space-pan'))
+            event.stopPropagation();
+        }}
+        onKeyDown={(event) => {
+          if ((event.key === 'Enter' || event.key === 'F2') && !disabled) {
+            event.preventDefault();
+            event.stopPropagation();
+            setRename({ type, id, value: name });
+          }
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          // Names are direct editing controls. Opening the mobile inspector
+          // on the first click covers the label before a double-click arrives.
+          if (!disabled && tool !== 'pan') {
+            finishViewport();
+            setRename({ type, id, value: name });
+          }
+        }}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          if (!disabled) {
+            finishViewport();
+            setRename({ type, id, value: name });
+          }
+        }}
+      >
+        {name || (type === 'element' ? 'Untitled' : 'Port')}
+      </span>
+    );
+  }
+  return (
+    <div
+      ref={root}
+      className={`board-canvas tool-${tool}`}
+      data-testid="board-canvas"
+      tabIndex={0}
+      role="region"
+      aria-label="Board canvas"
+      onClickCapture={(event) => {
+        if (event.timeStamp < suppressClickUntil.current) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      onPointerDownCapture={capturePointer}
+      onPointerDown={pointerDown}
+      onPointerMove={pointerMove}
+      onPointerUp={pointerUp}
+      onPointerCancel={cancelGesture}
+      onLostPointerCapture={(event) => {
+        if (gesture.current?.pointer === event.pointerId) cancelGesture();
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('input,textarea,select')
+        )
+          return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          cancelGesture();
+          setSourcePort(null);
+          setHoverPort(null);
+          setRename(null);
+          setNotice('');
+          return;
+        }
+        if (event.key === ' ') {
+          event.preventDefault();
+          if (!gesture.current) {
+            root.current?.classList.add('space-pan');
+          }
+        }
+        if (
+          tool === 'pan' &&
+          ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
+            event.key,
+          ) &&
+          !disabled
+        ) {
+          event.preventDefault();
+          const amount = event.shiftKey ? 120 : 40;
+          onChange(
+            {
+              ...document,
+              viewport: {
+                ...document.viewport,
+                x: clamp(
+                  document.viewport.x +
+                    (event.key === 'ArrowLeft'
+                      ? amount
+                      : event.key === 'ArrowRight'
+                        ? -amount
+                        : 0),
+                  -100000,
+                  100000,
+                ),
+                y: clamp(
+                  document.viewport.y +
+                    (event.key === 'ArrowUp'
+                      ? amount
+                      : event.key === 'ArrowDown'
+                        ? -amount
+                        : 0),
+                  -100000,
+                  100000,
+                ),
+              },
+            },
+            'Viewport',
+          );
+          return;
+        }
+        if (
+          selection?.type === 'element' &&
+          ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
+            event.key,
+          ) &&
+          !disabled
+        ) {
+          event.preventDefault();
+          const amount = event.altKey ? 1 : event.shiftKey ? 40 : 8;
+          onChange(
+            {
+              ...document,
+              elements: document.elements.map((item) =>
+                item.id === selection.id
+                  ? {
+                      ...item,
+                      x: clamp(
+                        item.x +
+                          (event.key === 'ArrowLeft'
+                            ? -amount
+                            : event.key === 'ArrowRight'
+                              ? amount
+                              : 0),
+                        -100000,
+                        100000,
+                      ),
+                      y: clamp(
+                        item.y +
+                          (event.key === 'ArrowUp'
+                            ? -amount
+                            : event.key === 'ArrowDown'
+                              ? amount
+                              : 0),
+                        -100000,
+                        100000,
+                      ),
+                    }
+                  : item,
+              ),
+            },
+            'Move object',
+          );
+        }
+      }}
+      onKeyUp={(event) => {
+        if (event.key === ' ') root.current?.classList.remove('space-pan');
+      }}
+    >
+      <div
+        data-board-background="true"
+        className="board-canvas-background"
+        style={
+          document.grid
+            ? {
+                backgroundSize: `${32 * viewport.zoom}px ${32 * viewport.zoom}px`,
+                backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+              }
+            : undefined
+        }
+        data-grid={document.grid}
+      />
+      <div
+        className="board-world"
+        style={{
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+        }}
+      >
+        {visible.elements
+          .slice()
+          .sort((a, b) => a.z - b.z)
+          .map((element) => {
+            const selected =
+              selection?.type === 'element' && selection.id === element.id;
+            const face = activeFace(element);
+            const ports = visible.ports.filter(
+              (port) => port.deviceId === element.id && port.face === face,
+            );
+            const entries = Array.isArray(element.properties.entries)
+              ? element.properties.entries
+              : [];
+            return (
+              <section
+                key={element.id}
+                className={`board-element board-${element.type}`}
+                data-board-element-id={element.id}
+                onDragOver={(event) => {
+                  if (
+                    !disabled &&
+                    element.type === 'device' &&
+                    event.dataTransfer.types.includes(
+                      'application/x-portfolio-port-kind',
+                    )
+                  ) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'copy';
+                  }
+                }}
+                onDrop={(event) => dropConnector(event, element)}
+                data-selected={selected}
+                aria-label={element.name || 'Untitled object'}
+                style={{
+                  left: element.x,
+                  top: element.y,
+                  width: element.width,
+                  height: element.height,
+                  zIndex: element.z,
+                  borderColor: element.color || undefined,
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!disabled) onSelect({ type: 'element', id: element.id });
+                }}
+              >
+                <header
+                  className="board-element-header"
+                  onPointerDown={(event) => {
+                    if (
+                      tool === 'pan' ||
+                      root.current?.classList.contains('space-pan')
+                    )
+                      begin(event, 'pan');
+                    else if (tool !== 'cable') begin(event, 'move', element.id);
+                  }}
+                >
+                  {inlineName('element', element.id, element.name)}
+                  {element.type === 'device' && (
+                    <div
+                      className="board-face-switch"
+                      aria-label={`${element.name} face`}
+                    >
+                      {(['front', 'rear'] as const).map((side) => (
+                        <button
+                          type="button"
+                          key={side}
+                          disabled={disabled}
+                          aria-pressed={face === side}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onChange(
+                              {
+                                ...document,
+                                elements: document.elements.map((item) =>
+                                  item.id === element.id
+                                    ? {
+                                        ...item,
+                                        properties: {
+                                          ...item.properties,
+                                          face: side,
+                                        },
+                                      }
+                                    : item,
+                                ),
+                              },
+                              'Change face',
+                            );
+                          }}
+                        >
+                          {side === 'front' ? 'Front' : 'Rear'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </header>
+                {element.type === 'device' ? (
+                  <div className="board-device-ports">
+                    {tool === 'ports' && (
+                      <div
+                        className="board-slot-grid"
+                        style={{
+                          left: DEVICE_PADDING,
+                          top: DEVICE_HEADER + DEVICE_PADDING,
+                          right: DEVICE_PADDING,
+                          bottom: DEVICE_PADDING,
+                          backgroundSize: `${PORT_WIDTH + portGap(element)}px ${PORT_HEIGHT + portGap(element)}px`,
+                        }}
+                      />
+                    )}
+                    {ports.map((port) => {
+                      const rect = portRect(element, port);
+                      const selectedPort =
+                        selection?.type === 'port' && selection.id === port.id;
+                      return (
+                        <div
+                          className="board-port"
+                          key={port.id}
+                          data-board-port-id={port.id}
+                          data-selected={selectedPort}
+                          data-cable-source={sourcePort === port.id}
+                          style={{
+                            left: rect.x - element.x,
+                            top: rect.y - element.y,
+                            width: PORT_WIDTH,
+                            height: PORT_HEIGHT,
+                          }}
+                        >
+                          {tool === 'ports' && (
+                            <button
+                              type="button"
+                              className="board-port-grip"
+                              onClick={(event) => event.stopPropagation()}
+                              aria-label={`Move ${port.name}`}
+                              disabled={disabled}
+                              onPointerDown={(event) =>
+                                begin(event, 'port', port.id)
+                              }
+                              onKeyDown={(event) => {
+                                if (
+                                  ![
+                                    'ArrowLeft',
+                                    'ArrowRight',
+                                    'ArrowUp',
+                                    'ArrowDown',
+                                  ].includes(event.key) ||
+                                  disabled
+                                )
+                                  return;
+                                event.preventDefault();
+                                event.stopPropagation();
+                                const row = clamp(
+                                  port.row +
+                                    (event.key === 'ArrowUp'
+                                      ? -1
+                                      : event.key === 'ArrowDown'
+                                        ? 1
+                                        : 0),
+                                  0,
+                                  127,
+                                );
+                                const column = clamp(
+                                  port.column +
+                                    (event.key === 'ArrowLeft'
+                                      ? -1
+                                      : event.key === 'ArrowRight'
+                                        ? 1
+                                        : 0),
+                                  0,
+                                  127,
+                                );
+                                const next = portRect(element, { row, column });
+                                if (
+                                  visible.ports.some(
+                                    (item) =>
+                                      item.id !== port.id &&
+                                      item.deviceId === port.deviceId &&
+                                      item.face === port.face &&
+                                      item.row === row &&
+                                      item.column === column,
+                                  ) ||
+                                  next.x + PORT_WIDTH >
+                                    element.x +
+                                      element.width -
+                                      DEVICE_PADDING ||
+                                  next.y + PORT_HEIGHT >
+                                    element.y + element.height - DEVICE_PADDING
+                                ) {
+                                  setNotice('That slot is unavailable.');
+                                  return;
+                                }
+                                onChange(
+                                  {
+                                    ...document,
+                                    ports: document.ports.map((item) =>
+                                      item.id === port.id
+                                        ? { ...item, row, column }
+                                        : item,
+                                    ),
+                                  },
+                                  'Move port',
+                                );
+                              }}
+                            >
+                              ⠿
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="board-port-socket"
+                            data-port-id={port.id}
+                            aria-label={`${element.name} ${summaryFor(port)}`}
+                            disabled={disabled}
+                            aria-describedby={
+                              summaryPort?.id === port.id && summaryPoint
+                                ? summaryId
+                                : undefined
+                            }
+                            onPointerDown={(event) => {
+                              startHold(event, port);
+                              if (
+                                tool === 'pan' ||
+                                event.button === 1 ||
+                                root.current?.classList.contains('space-pan')
+                              )
+                                begin(event, 'pan');
+                              else event.stopPropagation();
+                            }}
+                            onContextMenu={(event) => {
+                              if (
+                                lastPointerType.current === 'touch' &&
+                                tool === 'select'
+                              )
+                                event.preventDefault();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (suppressHoldClick.current === port.id) {
+                                suppressHoldClick.current = null;
+                                event.preventDefault();
+                                return;
+                              }
+                              setTouchSummary(null);
+                              selectPort(port);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'F2' && !disabled) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setRename({
+                                  type: 'port',
+                                  id: port.id,
+                                  value: port.name,
+                                });
+                                return;
+                              }
+                              if (
+                                ![
+                                  'ArrowLeft',
+                                  'ArrowRight',
+                                  'ArrowUp',
+                                  'ArrowDown',
+                                ].includes(event.key)
+                              )
+                                return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const horizontal =
+                                  event.key === 'ArrowLeft' ||
+                                  event.key === 'ArrowRight',
+                                sign =
+                                  event.key === 'ArrowLeft' ||
+                                  event.key === 'ArrowUp'
+                                    ? -1
+                                    : 1;
+                              const current = horizontal
+                                  ? port.column
+                                  : port.row,
+                                other = horizontal ? port.row : port.column;
+                              const target = ports
+                                .filter(
+                                  (item) =>
+                                    sign *
+                                      ((horizontal ? item.column : item.row) -
+                                        current) >
+                                    0,
+                                )
+                                .sort((a, b) => {
+                                  const score = (item: BoardPort) =>
+                                    Math.abs(
+                                      (horizontal ? item.row : item.column) -
+                                        other,
+                                    ) *
+                                      128 +
+                                    Math.abs(
+                                      (horizontal ? item.column : item.row) -
+                                        current,
+                                    );
+                                  return score(a) - score(b);
+                                })[0];
+                              if (target)
+                                root.current
+                                  ?.querySelector<HTMLButtonElement>(
+                                    `button[data-port-id="${CSS.escape(target.id)}"]`,
+                                  )
+                                  ?.focus();
+                            }}
+                            onPointerEnter={(event) => {
+                              if (event.pointerType !== 'touch')
+                                setHoverPort(port.id);
+                            }}
+                            onPointerLeave={() => setHoverPort(null)}
+                            onFocus={() => {
+                              if (lastPointerType.current !== 'touch')
+                                setHoverPort(port.id);
+                            }}
+                            onBlur={() => setHoverPort(null)}
+                          >
+                            <MemoConnector
+                              kind={port.kind}
+                              color={resolveBoardPortColor(visible, port)}
+                            />
+                          </button>
+                          {inlineName('port', port.id, port.name)}
+                          {port.role && (
+                            <span className="board-port-role" title={port.role}>
+                              {port.role}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="board-network-summary">
+                    {entries.map((entry, index) => {
+                      if (
+                        !entry ||
+                        typeof entry !== 'object' ||
+                        Array.isArray(entry)
+                      )
+                        return null;
+                      const label = networkEntrySummary(element, entry);
+                      return label ? (
+                        <p key={index}>
+                          <i
+                            style={{
+                              background: /^#[0-9a-fA-F]{6}$/.test(
+                                text(entry.color),
+                              )
+                                ? text(entry.color)
+                                : '#849389',
+                            }}
+                          />
+                          {label}
+                        </p>
+                      ) : null;
+                    })}
+                    {text(element.properties.notes) && (
+                      <p className="board-network-notes">
+                        {text(element.properties.notes)}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {selected &&
+                  !disabled &&
+                  tool === 'select' &&
+                  handles.map((handle) => (
+                    <button
+                      type="button"
+                      key={handle}
+                      className={`board-resize-handle handle-${handle}`}
+                      aria-label={`Resize ${element.name} ${handle}`}
+                      onPointerDown={(event) =>
+                        begin(event, 'resize', element.id, handle)
+                      }
+                      onKeyDown={(event) => {
+                        if (
+                          ![
+                            'ArrowLeft',
+                            'ArrowRight',
+                            'ArrowUp',
+                            'ArrowDown',
+                          ].includes(event.key)
+                        )
+                          return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const amount = event.shiftKey ? 40 : 8;
+                        const next = resizeRect(
+                          element,
+                          handle,
+                          {
+                            x:
+                              event.key === 'ArrowLeft'
+                                ? -amount
+                                : event.key === 'ArrowRight'
+                                  ? amount
+                                  : 0,
+                            y:
+                              event.key === 'ArrowUp'
+                                ? -amount
+                                : event.key === 'ArrowDown'
+                                  ? amount
+                                  : 0,
+                          },
+                          minimumDeviceSize(element, visible.ports),
+                          event.altKey,
+                        );
+                        onChange(
+                          {
+                            ...document,
+                            elements: document.elements.map((item) =>
+                              item.id === element.id
+                                ? { ...item, ...next }
+                                : item,
+                            ),
+                          },
+                          'Resize object',
+                        );
+                      }}
+                    />
+                  ))}
+              </section>
+            );
+          })}
+        {visible.showCables && (
+          <svg className="board-cable-layer" aria-label="Board cables">
+            {visible.cables.map((cable) => {
+              const a = getPortPoint(visible, cable.sourcePortId),
+                b = getPortPoint(visible, cable.targetPortId);
+              if (!a || !b) return null;
+              const source = visible.ports.find(
+                  (port) => port.id === cable.sourcePortId,
+                ),
+                target = visible.ports.find(
+                  (port) => port.id === cable.targetPortId,
+                );
+              const highlight =
+                (selection?.type === 'cable' && selection.id === cable.id) ||
+                [cable.sourcePortId, cable.targetPortId].includes(
+                  hoverPort ?? (selection?.type === 'port' ? selection.id : ''),
+                );
+              const hitPath = cableHitPath(a, b, visible.elements);
+              const label =
+                cable.name ||
+                `Cable: ${source?.name ?? 'Port'} ↔ ${target?.name ?? 'Port'}`;
+              return (
+                <g
+                  key={cable.id}
+                  data-board-cable-id={cable.id}
+                  data-highlighted={highlight}
+                  style={{ color: cable.color || '#aebec8' }}
+                >
+                  <title>{label}</title>
+                  <path className="board-cable-shadow" d={cableCurve(a, b)} />
+                  <path className="board-cable-line" d={cableCurve(a, b)} />
+                  <path
+                    className="board-cable-hit"
+                    d={hitPath || cableCurve(a, b)}
+                    style={{
+                      pointerEvents:
+                        hitPath && tool === 'select' ? 'stroke' : 'none',
+                    }}
+                    role="button"
+                    tabIndex={disabled ? -1 : 0}
+                    aria-label={label}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!disabled) onSelect({ type: 'cable', id: cable.id });
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        (event.key === 'Enter' || event.key === ' ') &&
+                        !disabled
+                      ) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onSelect({ type: 'cable', id: cable.id });
+                      }
+                    }}
+                  />
+                </g>
+              );
+            })}
+          </svg>
+        )}
+        <svg className="board-guide-layer" aria-hidden="true">
+          {guides.map((guide, index) =>
+            guide.axis === 'x' ? (
+              <line
+                key={index}
+                x1={guide.value}
+                x2={guide.value}
+                y1={-100000}
+                y2={100000}
+              />
+            ) : (
+              <line
+                key={index}
+                y1={guide.value}
+                y2={guide.value}
+                x1={-100000}
+                x2={100000}
+              />
+            ),
+          )}
+        </svg>
+      </div>
+      {summaryPort && summaryPoint && (
+        <div
+          id={summaryId}
+          role="tooltip"
+          className="board-port-summary"
+          data-summary-port-id={summaryPort.id}
+          style={{
+            left: `clamp(12px, ${viewport.x + summaryPoint.x * viewport.zoom + 14}px, calc(100% - 292px))`,
+            top: `clamp(12px, ${viewport.y + summaryPoint.y * viewport.zoom + 18}px, calc(100% - 150px))`,
+          }}
+        >
+          {summaryFor(summaryPort)}
+        </div>
+      )}
+      {notice && (
+        <p className="board-canvas-notice" role="status">
+          {notice}
+        </p>
+      )}
+      <span className="board-canvas-sr" aria-live="polite">
+        {sourcePort ? 'Choose a second port to connect. Escape cancels.' : ''}
+      </span>
+    </div>
+  );
+}

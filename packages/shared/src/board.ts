@@ -233,6 +233,43 @@ export function resolveBoardPortColor(
     }
   return '#849389';
 }
+export const networkDisplayFields = [
+  'vlanId',
+  'name',
+  'vlanName',
+  'subnet',
+  'gateway',
+  'pvid',
+  'addresses',
+  'dhcpStatus',
+  'dhcpStart',
+  'dhcpEnd',
+  'dns',
+  'notes',
+] as const;
+export function networkEntrySummary(
+  element: BoardElement,
+  entry: Record<string, JsonValue>,
+): string {
+  const fields = Array.isArray(element.properties.displayFields)
+    ? element.properties.displayFields.filter(
+        (item): item is string => typeof item === 'string',
+      )
+    : ['vlanId', 'name', 'subnet'];
+  const value = (key: string) =>
+    typeof entry[key] === 'string' || typeof entry[key] === 'number'
+      ? String(entry[key])
+      : '';
+  return fields
+    .map((field) => {
+      if (field === 'vlanId') return value(field) ? `VLAN ${value(field)}` : '';
+      if (field === 'name') return value('name') || value('vlanName');
+      if (field === 'subnet') return value('subnet') || value('cidr');
+      return value(field);
+    })
+    .filter(Boolean)
+    .join(' · ');
+}
 export function remapBoardDocument(document: BoardDocument): BoardDocument {
   const ids = new Map(
     [...document.elements, ...document.ports, ...document.cables].map(
