@@ -12,6 +12,11 @@ import {
 } from '../../../../packages/shared/src/board.js';
 import type { BoardSelection } from './BoardCanvas.js';
 import { addPorts } from './commands.js';
+import {
+  deviceHeaderFieldDefinitions,
+  deviceHeaderFieldOrder,
+  type DeviceHeaderFieldKey,
+} from './device-header-fields.js';
 import { FieldHelp } from './FieldHelp.js';
 import {
   knownLinkStatus,
@@ -80,6 +85,20 @@ export function BoardInspector({
         { properties: { ...element.properties, [key]: value } },
         key,
       );
+  }
+  function changeHeaderFields(headerFields: DeviceHeaderFieldKey[]) {
+    if (!element || element.type !== 'device') return;
+    onChange(
+      {
+        ...document,
+        elements: document.elements.map((item) =>
+          item.id === element.id
+            ? { ...item, properties: { ...item.properties, headerFields } }
+            : item,
+        ),
+      },
+      `Property:${element.id}:headerFields`,
+    );
   }
   function changePort(changes: Partial<BoardPort>, key: string) {
     if (!port) return;
@@ -296,6 +315,75 @@ export function BoardInspector({
                     );
                   },
                 )}
+                <details className="board-device-visible-fields">
+                  <summary>Visible Fields</summary>
+                  {[
+                    ...deviceHeaderFieldOrder(element),
+                    ...deviceHeaderFieldDefinitions
+                      .map((field) => field.key)
+                      .filter(
+                        (key) => !deviceHeaderFieldOrder(element).includes(key),
+                      ),
+                  ].map((key) => {
+                    const field = deviceHeaderFieldDefinitions.find(
+                      (item) => item.key === key,
+                    )!;
+                    const order = deviceHeaderFieldOrder(element);
+                    const index = order.indexOf(key);
+                    const move = (delta: number) => {
+                      const next = [...order];
+                      const target = index + delta;
+                      if (index < 0 || target < 0 || target >= next.length)
+                        return;
+                      [next[index], next[target]] = [
+                        next[target]!,
+                        next[index]!,
+                      ];
+                      changeHeaderFields(next);
+                    };
+                    return (
+                      <div className="board-device-field-choice" key={key}>
+                        <label className="board-display-field">
+                          <input
+                            type="checkbox"
+                            aria-label={`Show header ${field.label}`}
+                            checked={index >= 0}
+                            onChange={(event) =>
+                              changeHeaderFields(
+                                event.target.checked
+                                  ? [...order, key]
+                                  : order.filter((item) => item !== key),
+                              )
+                            }
+                          />
+                          {field.label}
+                        </label>
+                        {index >= 0 && (
+                          <span className="board-device-field-priority">
+                            <button
+                              type="button"
+                              aria-label={`Move ${field.label} earlier`}
+                              title="Earlier"
+                              disabled={index === 0}
+                              onClick={() => move(-1)}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Move ${field.label} later`}
+                              title="Later"
+                              disabled={index === order.length - 1}
+                              onClick={() => move(1)}
+                            >
+                              ↓
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </details>
                 <details open>
                   <summary>Ports</summary>
                   <div className="board-port-picker" aria-label="Port picker">

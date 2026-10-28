@@ -646,3 +646,23 @@
   height: 28px;
   color: #a8d0b5;
 }
+
+.board-device-field-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+}
+.board-inspector .board-device-field-choice label {
+  margin: 0;
+}
+.board-device-field-priority {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.board-device-field-priority button {
+  padding: 2px 6px;
+  font-size: 11px;
+}

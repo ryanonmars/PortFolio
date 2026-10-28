@@ -19,6 +19,8 @@ import {
   BoardViewport,
 } from '../../../../packages/shared/src/board.js';
 import { NetworkSummary } from './NetworkSummary.js';
+import { DeviceHeader } from './DeviceHeader.js';
+import { deviceHeaderFields } from './device-header-fields.js';
 import { makeBoardPort } from './commands.js';
 import { Connector } from '../visual/Connector.js';
 import {
@@ -1074,9 +1076,10 @@ export function BoardCanvas(props: BoardCanvasProps) {
             const selected =
               selection?.type === 'element' && selection.id === element.id;
             const face = activeFace(element);
-            const ports = visible.ports.filter(
-              (port) => port.deviceId === element.id && port.face === face,
+            const devicePorts = visible.ports.filter(
+              (port) => port.deviceId === element.id,
             );
+            const ports = devicePorts.filter((port) => port.face === face);
             return (
               <section
                 key={element.id}
@@ -1111,7 +1114,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 }}
               >
                 <header
-                  className="board-element-header"
+                  className={`board-element-header${element.type === 'device' ? ' board-device-header' : ''}`}
                   onPointerDown={(event) => {
                     if (
                       tool === 'pan' ||
@@ -1121,44 +1124,51 @@ export function BoardCanvas(props: BoardCanvasProps) {
                     else if (tool !== 'cable') begin(event, 'move', element.id);
                   }}
                 >
-                  {inlineName('element', element.id, element.name)}
-                  {element.type === 'device' && (
-                    <div
-                      className="board-face-switch"
-                      aria-label={`${element.name} face`}
-                    >
-                      {(['front', 'rear'] as const).map((side) => (
-                        <button
-                          type="button"
-                          key={side}
-                          disabled={disabled}
-                          aria-pressed={face === side}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onChange(
-                              {
-                                ...document,
-                                elements: document.elements.map((item) =>
-                                  item.id === element.id
-                                    ? {
-                                        ...item,
-                                        properties: {
-                                          ...item.properties,
-                                          face: side,
-                                        },
-                                      }
-                                    : item,
-                                ),
-                              },
-                              'Change face',
-                            );
-                          }}
+                  {element.type === 'device' ? (
+                    <DeviceHeader
+                      name={inlineName('element', element.id, element.name)}
+                      faceControls={
+                        <div
+                          className="board-face-switch"
+                          aria-label={`${element.name} face`}
                         >
-                          {side === 'front' ? 'Front' : 'Rear'}
-                        </button>
-                      ))}
-                    </div>
+                          {(['front', 'rear'] as const).map((side) => (
+                            <button
+                              type="button"
+                              key={side}
+                              disabled={disabled}
+                              aria-pressed={face === side}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onChange(
+                                  {
+                                    ...document,
+                                    elements: document.elements.map((item) =>
+                                      item.id === element.id
+                                        ? {
+                                            ...item,
+                                            properties: {
+                                              ...item.properties,
+                                              face: side,
+                                            },
+                                          }
+                                        : item,
+                                    ),
+                                  },
+                                  'Change face',
+                                );
+                              }}
+                            >
+                              {side === 'front' ? 'Front' : 'Rear'}
+                            </button>
+                          ))}
+                        </div>
+                      }
+                      fields={deviceHeaderFields(element, devicePorts.length)}
+                    />
+                  ) : (
+                    inlineName('element', element.id, element.name)
                   )}
                 </header>
                 {element.type === 'device' ? (
