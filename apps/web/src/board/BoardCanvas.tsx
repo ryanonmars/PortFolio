@@ -13,13 +13,12 @@ import {
   boardPortCapacity,
   maxBoardPortColumn,
   maxBoardPortRow,
-  networkEntrySummary,
   type BoardDocument,
   BoardElement,
   BoardPort,
   BoardViewport,
-  JsonValue,
 } from '../../../../packages/shared/src/board.js';
+import { NetworkSummary } from './NetworkSummary.js';
 import { makeBoardPort } from './commands.js';
 import { Connector } from '../visual/Connector.js';
 import {
@@ -68,8 +67,6 @@ type Gesture = {
 type Rename = { type: 'element' | 'port'; id: string; value: string };
 const MemoConnector = memo(Connector);
 const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-const text = (value: JsonValue | undefined) =>
-  typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 function portSummary(port: BoardPort) {
   return [
     port.name,
@@ -1080,9 +1077,6 @@ export function BoardCanvas(props: BoardCanvasProps) {
             const ports = visible.ports.filter(
               (port) => port.deviceId === element.id && port.face === face,
             );
-            const entries = Array.isArray(element.properties.entries)
-              ? element.properties.entries
-              : [];
             return (
               <section
                 key={element.id}
@@ -1409,36 +1403,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                     })}
                   </div>
                 ) : (
-                  <div className="board-network-summary">
-                    {entries.map((entry, index) => {
-                      if (
-                        !entry ||
-                        typeof entry !== 'object' ||
-                        Array.isArray(entry)
-                      )
-                        return null;
-                      const label = networkEntrySummary(element, entry);
-                      return label ? (
-                        <p key={index}>
-                          <i
-                            style={{
-                              background: /^#[0-9a-fA-F]{6}$/.test(
-                                text(entry.color),
-                              )
-                                ? text(entry.color)
-                                : '#849389',
-                            }}
-                          />
-                          {label}
-                        </p>
-                      ) : null;
-                    })}
-                    {text(element.properties.notes) && (
-                      <p className="board-network-notes">
-                        {text(element.properties.notes)}
-                      </p>
-                    )}
-                  </div>
+                  <NetworkSummary element={element} />
                 )}
                 {selected &&
                   !disabled &&

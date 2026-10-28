@@ -1,9 +1,13 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   resolveBoardPortColor,
-  networkEntrySummary,
   type BoardDocument,
 } from '../../../../packages/shared/src/board.js';
+import {
+  networkDisplayValue,
+  networkPresentation,
+  networkPresentationLines,
+} from './network-presentation.js';
 import { Connector } from '../visual/Connector.js';
 import { activeFace, cableCurve, getPortPoint, portRect } from './geometry.js';
 const escape = (value: unknown) =>
@@ -36,14 +40,42 @@ export function boardImageSvg(document: BoardDocument): string {
       element.type === 'network' &&
       Array.isArray(element.properties.entries)
     ) {
-      element.properties.entries
-        .slice(0, Math.max(0, Math.floor((element.height - 60) / 24)))
-        .forEach((entry, index) => {
-          if (!entry || typeof entry !== 'object' || Array.isArray(entry))
-            return;
-          const line = networkEntrySummary(element, entry);
-          svg += `<text x="${element.x + 16}" y="${element.y + 62 + index * 24}" fill="#c1d1c6" font-family="Arial,sans-serif" font-size="13">${escape(line)}</text>`;
+      const clipId = `network-summary-${document.elements.indexOf(element)}`;
+      const maxColumns = Math.max(1, Math.floor((element.width - 32) / 6.5));
+      const lines: string[] = [];
+      for (const entry of element.properties.entries) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+          continue;
+        const presentation = networkPresentation(element, entry);
+        if (!presentation) continue;
+        if (lines.length) lines.push('');
+        for (const line of networkPresentationLines(presentation))
+          for (const paragraph of line.split('\n')) {
+            const characters = Array.from(paragraph);
+            for (
+              let offset = 0;
+              offset < characters.length;
+              offset += maxColumns
+            )
+              lines.push(
+                characters.slice(offset, offset + maxColumns).join(''),
+              );
+          }
+      }
+      const notes = networkDisplayValue(element.properties.notes);
+      if (notes)
+        for (const paragraph of notes.split('\n')) {
+          const characters = Array.from(paragraph);
+          for (let offset = 0; offset < characters.length; offset += maxColumns)
+            lines.push(characters.slice(offset, offset + maxColumns).join(''));
+        }
+      svg += `<defs><clipPath id="${clipId}"><rect x="${element.x + 12}" y="${element.y + 48}" width="${element.width - 24}" height="${Math.max(0, element.height - 60)}"/></clipPath></defs><g clip-path="url(#${clipId})">`;
+      lines
+        .slice(0, Math.max(0, Math.floor((element.height - 60) / 18)))
+        .forEach((line, index) => {
+          svg += `<text x="${element.x + 16}" y="${element.y + 62 + index * 18}" fill="#c1d1c6" font-family="Arial,sans-serif" font-size="12">${escape(line)}</text>`;
         });
+      svg += '</g>';
     }
     for (const port of document.ports.filter(
       (item) =>

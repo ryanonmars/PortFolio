@@ -315,7 +315,7 @@ export function BoardInspector({
               <>
                 <details>
                   <summary>Visible fields</summary>
-                  {networkDisplayFields.map((field) => {
+                  {[...networkDisplayFields, 'customFields'].map((field) => {
                     const shown = Array.isArray(
                       element.properties.displayFields,
                     )
@@ -357,7 +357,10 @@ export function BoardInspector({
                             ? 'VLAN name'
                             : field === 'dhcpServer'
                               ? 'DHCP Server'
-                              : field.charAt(0).toUpperCase() + field.slice(1)}
+                              : field === 'customFields'
+                                ? 'Custom fields'
+                                : field.charAt(0).toUpperCase() +
+                                  field.slice(1)}
                       </label>
                     );
                   })}
