@@ -233,15 +233,56 @@ export function resolveBoardPortColor(
     }
   return '#849389';
 }
+/** Additive compatibility migration: raw annotations remain available for review/export. */
+export function normalizeNetworkEntry(
+  entry: Record<string, JsonValue>,
+): Record<string, JsonValue> {
+  if (entry.networkEntryVersion === 2) return { ...entry };
+  const next: Record<string, JsonValue> = { ...entry, networkEntryVersion: 2 };
+  if (
+    (next.vlanName === undefined || next.vlanName === '') &&
+    typeof next.name === 'string'
+  )
+    next.vlanName = next.name;
+  if (next.dhcpServer === undefined && typeof next.dhcpStatus === 'string') {
+    const status = next.dhcpStatus.trim().toLowerCase();
+    if (['enabled', 'on', 'true', 'yes', '1'].includes(status))
+      next.dhcpServer = true;
+    else if (['disabled', 'off', 'false', 'no', '0'].includes(status))
+      next.dhcpServer = false;
+  }
+  return next;
+}
+
+/** Read old documents without writing, changing versions, or dropping unknown data. */
+export function normalizeNetworkDocument(
+  document: BoardDocument,
+): BoardDocument {
+  return {
+    ...document,
+    elements: document.elements.map((element) =>
+      element.type === 'network' && Array.isArray(element.properties.entries)
+        ? {
+            ...element,
+            properties: {
+              ...element.properties,
+              entries: element.properties.entries.map((entry) =>
+                entry && typeof entry === 'object' && !Array.isArray(entry)
+                  ? normalizeNetworkEntry(entry)
+                  : entry,
+              ),
+            },
+          }
+        : element,
+    ),
+  };
+}
 export const networkDisplayFields = [
   'vlanId',
-  'name',
   'vlanName',
   'subnet',
   'gateway',
-  'pvid',
-  'addresses',
-  'dhcpStatus',
+  'dhcpServer',
   'dhcpStart',
   'dhcpEnd',
   'dns',
@@ -255,15 +296,26 @@ export function networkEntrySummary(
     ? element.properties.displayFields.filter(
         (item): item is string => typeof item === 'string',
       )
-    : ['vlanId', 'name', 'subnet'];
+    : ['vlanId', 'vlanName', 'subnet'];
+  const migrated = normalizeNetworkEntry(entry);
   const value = (key: string) =>
     typeof entry[key] === 'string' || typeof entry[key] === 'number'
       ? String(entry[key])
       : '';
   return fields
     .map((field) => {
+      if (field === 'dhcpServer' || field === 'dhcpStatus')
+        return typeof migrated.dhcpServer === 'boolean'
+          ? `DHCP ${migrated.dhcpServer ? 'On' : 'Off'}`
+          : value('dhcpStatus');
+      if (
+        (field === 'dhcpStart' || field === 'dhcpEnd') &&
+        migrated.dhcpServer === false
+      )
+        return '';
+      if (field === 'vlanName' || field === 'name')
+        return String(migrated.vlanName ?? '');
       if (field === 'vlanId') return value(field) ? `VLAN ${value(field)}` : '';
-      if (field === 'name') return value('name') || value('vlanName');
       if (field === 'subnet') return value('subnet') || value('cidr');
       return value(field);
     })

@@ -86,6 +86,102 @@ async function create(
 }
 
 describe('board-centric persistence API', () => {
+  it('lazily migrates old Network entries without writes and preserves annotations through save, restart and import', async () => {
+    const client = await fixture();
+    const original = sample();
+    original.elements.push({
+      id: 'network',
+      type: 'network',
+      name: 'Container title',
+      x: 0,
+      y: 400,
+      width: 320,
+      height: 220,
+      z: 2,
+      color: '',
+      properties: {
+        entries: [
+          {
+            name: 'Original title',
+            vlanName: '',
+            pvid: '99',
+            addresses: 'authored addresses',
+            dhcpStatus: 'Enabled',
+            dhcpStart: 'start',
+            dhcpEnd: 'end',
+            customFields: { enabled: false, count: 0 },
+          },
+          {
+            name: 'Second',
+            vlanName: 'Existing VLAN name',
+            dhcpStatus: 'relay sometimes',
+            mystery: 'preserved',
+          },
+        ],
+      },
+    });
+    const created = await create(client);
+    // Simulate a document already stored by the previous application version.
+    const stored = JSON.stringify(original);
+    client.db
+      .prepare('UPDATE boards SET document_json=? WHERE id=?')
+      .run(stored, created.id);
+    const get = async () =>
+      (await client.request('GET', `/api/v1/boards/${created.id}`)).json()
+        .board as BoardRecord;
+    const migrated = await get();
+    expect(migrated.rowVersion).toBe(created.rowVersion);
+    expect(
+      client.db
+        .prepare('SELECT document_json FROM boards WHERE id=?')
+        .get(created.id)?.document_json,
+    ).toBe(stored);
+    const entries = migrated.document.elements[2]!.properties.entries as Record<
+      string,
+      unknown
+    >[];
+    expect(entries[0]).toMatchObject({
+      name: 'Original title',
+      vlanName: 'Original title',
+      pvid: '99',
+      addresses: 'authored addresses',
+      dhcpStatus: 'Enabled',
+      dhcpServer: true,
+    });
+    expect(entries[1]).toMatchObject({
+      vlanName: 'Existing VLAN name',
+      dhcpStatus: 'relay sometimes',
+      mystery: 'preserved',
+    });
+    expect(entries[1]).not.toHaveProperty('dhcpServer');
+    entries[0]!.dhcpServer = false;
+    entries[0]!.vlanName = '';
+    const saved = await client.request(
+      'PATCH',
+      `/api/v1/boards/${created.id}`,
+      { rowVersion: migrated.rowVersion, document: migrated.document },
+    );
+    expect(saved.statusCode, saved.body).toBe(200);
+    await client.restart();
+    const reloaded = await get();
+    expect(reloaded.document).toEqual(migrated.document);
+    expect(reloaded.document.ports).toEqual(original.ports);
+    expect(reloaded.document.ports[0]!.pvid).toBe('17');
+    const archive = (
+      await client.request('GET', `/api/v1/boards/${created.id}/export`)
+    ).json();
+    const imported = await client.request(
+      'POST',
+      '/api/v1/boards/import',
+      archive,
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    expect(imported.json().board.document.elements[2].properties).toEqual(
+      reloaded.document.elements[2]!.properties,
+    );
+    expect(client.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
   it('atomically reorders the complete board list and versions only changed positions', async () => {
     const client = await fixture();
     expect(

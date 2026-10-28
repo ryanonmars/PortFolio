@@ -25,12 +25,12 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop-board',
-      testMatch: '**/board.spec.ts',
+      testMatch: '**/{board,network}.spec.ts',
       use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3089' },
     },
     {
       name: 'mobile-board',
-      testMatch: '**/board.spec.ts',
+      testMatch: '**/{board,network}.spec.ts',
       use: {
         ...devices['iPhone 13'],
         defaultBrowserType: 'chromium',

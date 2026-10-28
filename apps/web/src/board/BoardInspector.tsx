@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   minimumBoardDeviceSize,
   networkDisplayFields,
+  normalizeNetworkEntry,
   type BoardDocument,
   type BoardElement,
   type BoardPort,
@@ -170,7 +171,9 @@ export function BoardInspector({
     (cable ? 'Cable' : 'Properties');
   const entries =
     element?.type === 'network' && Array.isArray(element.properties.entries)
-      ? element.properties.entries.map(record)
+      ? element.properties.entries.map((entry) =>
+          normalizeNetworkEntry(record(entry)),
+        )
       : [];
   const updateEntries = (next: Record<string, JsonValue>[]) =>
     property('entries', next);
@@ -189,8 +192,10 @@ export function BoardInspector({
         {error && <p role="alert">{error}</p>}
         {element && (
           <>
-            {input('Name', element.name, (name) =>
-              changeElement({ name }, 'name'),
+            {input(
+              element.type === 'network' ? 'Network container name' : 'Name',
+              element.name,
+              (name) => changeElement({ name }, 'name'),
             )}
             {input(
               'Container color',
@@ -308,19 +313,34 @@ export function BoardInspector({
                       element.properties.displayFields,
                     )
                       ? element.properties.displayFields
-                      : ['vlanId', 'name', 'subnet'];
+                      : ['vlanId', 'vlanName', 'subnet'];
                     return (
                       <label key={field} className="board-display-field">
                         <input
                           type="checkbox"
                           aria-label={`Show ${field}`}
-                          checked={shown.includes(field)}
+                          checked={
+                            shown.includes(field) ||
+                            (field === 'dhcpServer' &&
+                              shown.includes('dhcpStatus')) ||
+                            (field === 'vlanName' && shown.includes('name'))
+                          }
                           onChange={(event) =>
                             property(
                               'displayFields',
                               event.target.checked
                                 ? [...shown, field]
-                                : shown.filter((item) => item !== field),
+                                : shown.filter(
+                                    (item) =>
+                                      item !== field &&
+                                      !(
+                                        field === 'dhcpServer' &&
+                                        item === 'dhcpStatus'
+                                      ) &&
+                                      !(
+                                        field === 'vlanName' && item === 'name'
+                                      ),
+                                  ),
                             )
                           }
                         />
@@ -328,111 +348,165 @@ export function BoardInspector({
                           ? 'VLAN ID'
                           : field === 'vlanName'
                             ? 'VLAN name'
-                            : field === 'dhcpStatus'
-                              ? 'DHCP status'
+                            : field === 'dhcpServer'
+                              ? 'DHCP Server'
                               : field.charAt(0).toUpperCase() + field.slice(1)}
                       </label>
                     );
                   })}
                 </details>
-                {entries.map((entry, index) => (
-                  <details key={index} open={entries.length === 1 || undefined}>
-                    <summary>
-                      {String(
-                        entry.name ||
-                          entry.vlanName ||
-                          (entry.vlanId
-                            ? `VLAN ${entry.vlanId}`
-                            : `Entry ${index + 1}`),
-                      )}
-                    </summary>
-                    {[
-                      'Name',
-                      'VLAN ID',
-                      'VLAN name',
-                      'Subnet/CIDR',
-                      'Gateway',
-                      'PVID',
-                      'IP addresses',
-                      'DHCP status',
-                      'DHCP pool start',
-                      'DHCP pool end',
-                      'DNS servers',
-                      'Notes',
-                    ].map((label) => {
-                      const keys: Record<string, string> = {
-                        Name: 'name',
-                        'VLAN ID': 'vlanId',
-                        'VLAN name': 'vlanName',
-                        'Subnet/CIDR': 'subnet',
-                        Gateway: 'gateway',
-                        PVID: 'pvid',
-                        'IP addresses': 'addresses',
-                        'DHCP status': 'dhcpStatus',
-                        'DHCP pool start': 'dhcpStart',
-                        'DHCP pool end': 'dhcpEnd',
-                        'DNS servers': 'dns',
-                        Notes: 'notes',
-                      };
-                      const key = keys[label]!;
-                      return input(label, String(entry[key] ?? ''), (value) =>
-                        updateEntries(
-                          entries.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, [key]: value }
-                              : item,
-                          ),
-                        ),
-                      );
-                    })}
-                    {input(
-                      'VLAN color',
-                      typeof entry.color === 'string' &&
-                        /^#[0-9a-f]{6}$/i.test(entry.color)
-                        ? entry.color
-                        : '#549cec',
-                      (value) =>
-                        updateEntries(
-                          entries.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, color: value }
-                              : item,
-                          ),
-                        ),
-                      'color',
-                    )}
-                    {custom(record(entry.customFields), (fields) =>
-                      updateEntries(
-                        entries.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? { ...item, customFields: fields }
-                            : item,
-                        ),
+                {entries.map((entry, index) => {
+                  const update = (key: string, value: JsonValue) =>
+                    updateEntries(
+                      entries.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, [key]: value } : item,
                       ),
-                    )}
-                    <button
-                      onClick={() =>
-                        updateEntries(
-                          entries.filter(
-                            (_item, itemIndex) => itemIndex !== index,
-                          ),
-                        )
-                      }
+                    );
+                  const preserved = [
+                    ['name', 'Previous entry name'],
+                    ['addresses', 'Previous IP addresses'],
+                    ['pvid', 'Previous PVID'],
+                    ['dhcpStatus', 'Previous DHCP status'],
+                  ].filter(
+                    ([key]) => entry[key!] !== undefined && entry[key!] !== '',
+                  );
+                  const reviewDhcp =
+                    typeof entry.dhcpServer !== 'boolean' && !!entry.dhcpStatus;
+                  return (
+                    <details
+                      key={index}
+                      open={entries.length === 1 || undefined}
                     >
-                      Remove entry
-                    </button>
-                  </details>
-                ))}
+                      <summary>
+                        {String(
+                          entry.vlanName ||
+                            (entry.vlanId
+                              ? `VLAN ${entry.vlanId}`
+                              : `Entry ${index + 1}`),
+                        )}
+                      </summary>
+                      {input('VLAN ID', String(entry.vlanId ?? ''), (value) =>
+                        update('vlanId', value),
+                      )}
+                      {input(
+                        'VLAN name',
+                        String(entry.vlanName ?? ''),
+                        (value) => update('vlanName', value),
+                      )}
+                      {input(
+                        'VLAN color',
+                        typeof entry.color === 'string' &&
+                          /^#[0-9a-f]{6}$/i.test(entry.color)
+                          ? entry.color
+                          : '#549cec',
+                        (value) => update('color', value),
+                        'color',
+                      )}
+                      {input(
+                        'Subnet/CIDR',
+                        String(entry.subnet ?? ''),
+                        (value) => update('subnet', value),
+                      )}
+                      {input('Gateway', String(entry.gateway ?? ''), (value) =>
+                        update('gateway', value),
+                      )}
+                      <label className="board-display-field">
+                        <input
+                          type="checkbox"
+                          aria-label="DHCP Server"
+                          checked={entry.dhcpServer === true}
+                          onChange={(event) =>
+                            update('dhcpServer', event.target.checked)
+                          }
+                        />
+                        DHCP Server
+                        <span>
+                          {entry.dhcpServer === true
+                            ? 'On'
+                            : entry.dhcpServer === false
+                              ? 'Off'
+                              : 'Not set'}
+                        </span>
+                      </label>
+                      {entry.dhcpServer === true && (
+                        <>
+                          {input(
+                            'DHCP pool start',
+                            String(entry.dhcpStart ?? ''),
+                            (value) => update('dhcpStart', value),
+                          )}
+                          {input(
+                            'DHCP pool end',
+                            String(entry.dhcpEnd ?? ''),
+                            (value) => update('dhcpEnd', value),
+                          )}
+                        </>
+                      )}
+                      {input('DNS servers', String(entry.dns ?? ''), (value) =>
+                        update('dns', value),
+                      )}
+                      {notes('Notes', String(entry.notes ?? ''), (value) =>
+                        update('notes', value),
+                      )}
+                      {custom(record(entry.customFields), (fields) =>
+                        update('customFields', fields),
+                      )}
+                      {preserved.length > 0 && (
+                        <details>
+                          <summary>
+                            {reviewDhcp
+                              ? 'Preserved fields · review DHCP'
+                              : 'Preserved fields'}
+                          </summary>
+                          {preserved.map(([key, label]) =>
+                            input(label!, String(entry[key!] ?? ''), (value) =>
+                              update(key!, value),
+                            ),
+                          )}
+                        </details>
+                      )}
+                      <button
+                        onClick={() =>
+                          updateEntries(
+                            entries.filter(
+                              (_item, itemIndex) => itemIndex !== index,
+                            ),
+                          )
+                        }
+                      >
+                        Remove entry
+                      </button>
+                    </details>
+                  );
+                })}
                 <button onClick={() => updateEntries([...entries, {}])}>
                   Add network entry
                 </button>
               </>
             )}
-            {notes('Notes', String(element.properties.notes ?? ''), (value) =>
-              property('notes', value),
-            )}
-            {custom(record(element.properties.customFields), (fields) =>
-              property('customFields', fields),
+            {element.type === 'network' ? (
+              <details>
+                <summary>Container details</summary>
+                {notes(
+                  'Container notes',
+                  String(element.properties.notes ?? ''),
+                  (value) => property('notes', value),
+                )}
+                {custom(record(element.properties.customFields), (fields) =>
+                  property('customFields', fields),
+                )}
+              </details>
+            ) : (
+              <>
+                {notes(
+                  'Notes',
+                  String(element.properties.notes ?? ''),
+                  (value) => property('notes', value),
+                )}
+                {custom(record(element.properties.customFields), (fields) =>
+                  property('customFields', fields),
+                )}
+              </>
             )}
           </>
         )}

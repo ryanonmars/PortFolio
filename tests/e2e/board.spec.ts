@@ -270,7 +270,7 @@ test('standalone boards and optional groups have real lifecycle and private sess
     fullPage: false,
   });
   await add(page, 'Network');
-  await field(page, 'Name', 'Standalone network');
+  await field(page, 'Network container name', 'Standalone network');
   await inspector(page)
     .getByRole('button', { name: 'Add network entry', exact: true })
     .click();
@@ -328,8 +328,7 @@ test('standalone boards and optional groups have real lifecycle and private sess
     )
     .click();
   await inspector(page)
-    .getByLabel('Name', { exact: true })
-    .first()
+    .getByLabel('Network container name', { exact: true })
     .fill('Private network');
   await saved(page);
   await closeInspector(page);
@@ -840,13 +839,16 @@ test('canvas equipment, flexible ports, network data and cables autosave and sur
     fullPage: false,
   });
   await add(page, 'Network');
-  await field(page, 'Name', 'Independent network');
+  await field(page, 'Network container name', 'Independent network');
   await inspector(page)
     .getByRole('button', { name: 'Add network entry', exact: true })
     .click();
   await field(page, 'VLAN ID', '20');
   await field(page, 'Subnet/CIDR', '192.0.2.0/24');
   await field(page, 'Gateway', '192.0.2.1');
+  await inspector(page)
+    .getByRole('checkbox', { name: 'DHCP Server', exact: true })
+    .check();
   await field(page, 'DHCP pool start', '192.0.2.50');
   await field(page, 'DHCP pool end', '192.0.2.80');
   await field(page, 'VLAN color', '#3377aa');

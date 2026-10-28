@@ -7,6 +7,7 @@ import {
   boardImportSchema,
   emptyBoardDocument,
   remapBoardDocument,
+  normalizeNetworkDocument,
   type BoardDocument,
   type BoardGroup,
   type BoardRecord,
@@ -109,7 +110,12 @@ export function registerBoards(
       .get(boardId) as (BoardSummary & { documentJson: string }) | undefined;
     if (!record) throw new ApiError(404, 'NOT_FOUND', 'Board not found');
     const { documentJson, ...summary } = record;
-    return { ...summary, document: JSON.parse(documentJson) as BoardDocument };
+    return {
+      ...summary,
+      document: normalizeNetworkDocument(
+        JSON.parse(documentJson) as BoardDocument,
+      ),
+    };
   };
   const requireGroup = (groupId: string | null) => {
     if (groupId !== null) group(groupId);
@@ -138,7 +144,7 @@ export function registerBoards(
       boardName,
       groupId,
       nextOrder('boards'),
-      JSON.stringify(document),
+      JSON.stringify(normalizeNetworkDocument(document)),
       Date.now(),
       Date.now(),
     );
@@ -225,7 +231,9 @@ export function registerBoards(
           input.name ?? current.name,
           groupId,
           input.order ?? current.order,
-          JSON.stringify(input.document ?? current.document),
+          JSON.stringify(
+            normalizeNetworkDocument(input.document ?? current.document),
+          ),
           Date.now(),
           current.id,
           input.rowVersion,
