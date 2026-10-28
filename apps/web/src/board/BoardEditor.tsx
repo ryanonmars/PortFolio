@@ -77,6 +77,8 @@ export const BoardEditor = forwardRef<
   const [types, setTypes] = useState(false);
   const [fitToken, setFitToken] = useState(0);
   const [error, setError] = useState('');
+  const exporting = useRef(false);
+  const [imageExporting, setImageExporting] = useState(false);
   const [gesture, setGesture] = useState(false);
   const surface = useRef<HTMLDivElement>(null);
   const document = session.document;
@@ -416,14 +418,24 @@ export const BoardEditor = forwardRef<
             <button onClick={onExport}>Export JSON</button>
             <button onClick={onImport}>Import JSON</button>
             <button
+              disabled={imageExporting}
               onClick={() => {
-                if (blocked()) return;
+                if (blocked() || exporting.current) return;
+                exporting.current = true;
+                setImageExporting(true);
                 const snapshot = structuredClone(document);
+                const name = board.name;
                 void import('./image-export.js')
-                  .then(({ downloadBoardImage }) => {
-                    if (!disabledRef.current && !externalLock.current)
-                      downloadBoardImage(snapshot, board.name);
-                  })
+                  .then(({ downloadBoardImage }) =>
+                    downloadBoardImage(
+                      snapshot,
+                      name,
+                      () =>
+                        alive.current &&
+                        !disabledRef.current &&
+                        !externalLock.current,
+                    ),
+                  )
                   .catch((cause) => {
                     if (alive.current)
                       setError(
@@ -431,6 +443,10 @@ export const BoardEditor = forwardRef<
                           ? cause.message
                           : 'Unable to export image',
                       );
+                  })
+                  .finally(() => {
+                    exporting.current = false;
+                    if (alive.current) setImageExporting(false);
                   });
               }}
             >

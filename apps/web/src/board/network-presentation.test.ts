@@ -11,7 +11,6 @@ import {
   networkPresentationLines,
 } from './network-presentation.js';
 import { NetworkSummary } from './NetworkSummary.js';
-import { boardImageSvg } from './image-export.js';
 
 const element: BoardElement = {
   id: 'network',
@@ -195,7 +194,7 @@ describe('Network information presentation', () => {
     expect(show(['notes'])!.chips).toEqual([]);
   });
 
-  it('keeps clean SVG export in sync with selected labels, statuses and custom values', () => {
+  it('renders the shared presentation with selected labels, statuses and custom values', () => {
     const item = {
       ...element,
       properties: {
@@ -211,14 +210,20 @@ describe('Network information presentation', () => {
     };
     const doc = { ...emptyBoardDocument(), elements: [item] };
     const before = JSON.stringify(doc);
-    const svg = boardImageSvg(doc);
-    expect(svg).toContain('DHCP: Disabled');
-    expect(svg).toContain('DHCP Pool: 192.0.2.100 → 192.0.2.200');
-    expect(svg).toContain('Count: 0');
-    expect(svg).toContain('Active: false');
+    const svg = renderToStaticMarkup(
+      createElement(NetworkSummary, { element: item }),
+    );
+    expect(svg).toContain('Disabled');
+    expect(svg).toContain('DHCP');
+    expect(svg).toContain('DHCP Pool');
+    expect(svg).toContain('192.0.2.100 → 192.0.2.200');
+    expect(svg).toContain('Count');
+    expect(svg).toContain('>0<');
+    expect(svg).toContain('Active');
+    expect(svg).toContain('>false<');
     expect(svg).not.toContain('router.example');
     expect(svg).not.toContain('Servers');
-    expect(svg).toContain('clip-path=');
+    expect(svg).toContain('board-network-chip');
     expect(svg).not.toContain('foreignObject');
     expect(JSON.stringify(doc)).toBe(before);
     expect(networkPresentationLines(show(['gateway'])!)).toEqual([

@@ -93,19 +93,33 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:3115',
       },
     },
-  ],
-  webServer: [3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115].map(
-    (port, index) => ({
-      command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
-      url: `http://127.0.0.1:${port}/healthz`,
-      reuseExistingServer: false,
-      timeout: 120_000,
-      env: {
-        HOST: '127.0.0.1',
-        PORT: String(port),
-        DATA_DIR: join(dataDir, String(port)),
-        PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+    {
+      name: 'desktop-export-fidelity',
+      testMatch: '**/export-fidelity.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3117' },
+    },
+    {
+      name: 'mobile-export-fidelity',
+      testMatch: '**/export-fidelity.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3119',
       },
-    }),
-  ),
+    },
+  ],
+  webServer: [
+    3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115, 3117, 3119,
+  ].map((port, index) => ({
+    command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
+    url: `http://127.0.0.1:${port}/healthz`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      HOST: '127.0.0.1',
+      PORT: String(port),
+      DATA_DIR: join(dataDir, String(port)),
+      PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+    },
+  })),
 });

@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { RJ45_SOCKET_PATH } from '../../apps/web/src/visual/Connector.js';
 import {
   emptyBoardDocument,
   type BoardRecord,
@@ -1052,7 +1053,7 @@ test('board archive roundtrip, image export and rejected writes preserve canonic
   const svg = await readFile((await image.path())!, 'utf8');
   await page.locator('summary[aria-label="Board menu"]').click();
   expect(svg).toContain('<svg');
-  expect(svg).toContain('data-connector="rj45"');
+  expect(svg).toContain(RJ45_SOCKET_PATH);
   expect(svg).not.toContain('Resize Archive switch');
   const token = (await (await page.request.get('/api/v1/auth/session')).json())
     .csrfToken;

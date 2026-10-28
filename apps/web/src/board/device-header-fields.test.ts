@@ -9,7 +9,6 @@ import {
   fitDeviceHeaderFields,
 } from './device-header-fields.js';
 import { makeBoardPort } from './commands.js';
-import { boardImageSvg } from './image-export.js';
 import { cableCurve, getPortPoint, portRect } from './geometry.js';
 
 const device: BoardElement = {
@@ -167,7 +166,7 @@ describe('fixed-header display preferences and fitting', () => {
     ).toEqual([]);
   });
 
-  it('keeps canonical dimensions, ports and simple cable geometry unchanged through rendering/export', () => {
+  it('keeps canonical dimensions, ports and simple cable geometry unchanged through presentation changes', () => {
     const peer = { ...device, id: 'peer', x: 1100, y: 400 };
     const document = {
       ...emptyBoardDocument(),
@@ -188,11 +187,15 @@ describe('fixed-header display preferences and fitting', () => {
         element,
         document.ports.filter((port) => port.deviceId === element.id).length,
       );
-    const svg = boardImageSvg(document);
-    expect(svg).toContain('TP-Link');
-    expect(svg).toContain('Management Address: router.example, 2001:db8::1');
-    expect(svg).toContain('height="16"');
-    expect(svg).toContain('header-field-');
+    expect(deviceHeaderFields(document.elements[0]!, 1)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Manufacturer', value: 'TP-Link' }),
+        expect.objectContaining({
+          label: 'Management Address',
+          value: 'router.example, 2001:db8::1',
+        }),
+      ]),
+    );
     expect(JSON.stringify(document)).toBe(before);
     const none = {
       ...document,
@@ -201,7 +204,7 @@ describe('fixed-header display preferences and fitting', () => {
         properties: { ...element.properties, headerFields: [] },
       })),
     };
-    expect(boardImageSvg(none)).not.toContain('header-field-');
+    expect(deviceHeaderFields(none.elements[0]!, 1)).toEqual([]);
     expect(portRect(none.elements[0]!, none.ports[0]!)).toEqual(originalPort);
     expect(
       cableCurve(
