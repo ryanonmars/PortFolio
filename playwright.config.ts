@@ -1,0 +1,111 @@
+import { defineConfig, devices } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const ownsDataDir = !process.env.PORTFOLIO_E2E_DATA_DIR;
+const dataDir =
+  process.env.PORTFOLIO_E2E_DATA_DIR ??
+  mkdtempSync(join(tmpdir(), 'portfolio-e2e-'));
+process.env.PORTFOLIO_E2E_DATA_DIR = dataDir;
+
+export default defineConfig({
+  metadata: { e2eDataDir: dataDir, ownsDataDir },
+  testDir: './tests/e2e',
+  fullyParallel: false,
+  workers: 1,
+  globalTeardown: './tests/e2e/teardown.ts',
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? 'github' : 'list',
+  use: {
+    baseURL: 'http://127.0.0.1:3089',
+    trace: 'retain-on-failure',
+  },
+  projects: [
+    {
+      name: 'desktop',
+      testMatch: '**/organization.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3089' },
+    },
+    {
+      name: 'mobile',
+      testMatch: '**/organization.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3093',
+      },
+    },
+    {
+      name: 'desktop-configure',
+      testMatch: '**/configure.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3095' },
+    },
+    {
+      name: 'mobile-configure',
+      testMatch: '**/configure.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3096',
+      },
+    },
+    {
+      name: 'desktop-visual',
+      testMatch: '**/visual.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3097' },
+    },
+    {
+      name: 'mobile-visual',
+      testMatch: '**/visual.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3098',
+      },
+    },
+    {
+      name: 'desktop-transfer',
+      testMatch: '**/transfer.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3099' },
+    },
+    {
+      name: 'mobile-transfer',
+      testMatch: '**/transfer.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3100',
+      },
+    },
+    {
+      name: 'desktop-navigation',
+      testMatch: '**/navigation.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3102' },
+    },
+    {
+      name: 'mobile-navigation',
+      testMatch: '**/navigation.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3103',
+      },
+    },
+  ],
+  webServer: [3089, 3093, 3095, 3096, 3097, 3098, 3099, 3100, 3102, 3103].map(
+    (port, index) => ({
+      command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
+      url: `http://127.0.0.1:${port}/healthz`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        DATA_DIR: join(dataDir, String(port)),
+        PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+      },
+    }),
+  ),
+});

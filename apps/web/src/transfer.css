@@ -1,0 +1,262 @@
+.transfer-pane {
+  margin-top: 30px;
+  min-width: 0;
+}
+.transfer-heading .eyebrow {
+  margin-bottom: 13px;
+}
+.transfer-heading h2 {
+  font-size: 26px;
+  letter-spacing: -0.6px;
+  margin: 0 0 12px;
+}
+.transfer-heading > p:last-child {
+  color: #aebfb3;
+  font-size: 14px;
+  line-height: 1.8;
+  max-width: 700px;
+  margin: 0;
+}
+.transfer-privacy {
+  border-left: 3px solid #8ea994;
+  padding: 12px 16px;
+  background: #1a2a20;
+  color: #c6d9cc;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 27px 0;
+  max-width: 850px;
+}
+.transfer-section {
+  border-top: 1px solid #35483b;
+  padding: 26px 0 31px;
+  margin-top: 20px;
+}
+.transfer-section h3,
+.transfer-preview h3,
+.transfer-result h3 {
+  font-size: 18px;
+  font-weight: 550;
+  margin: 0 0 12px;
+  letter-spacing: -0.3px;
+}
+.transfer-section p,
+.transfer-preview p,
+.transfer-result p {
+  color: #aebfb3;
+  font-size: 13px;
+  line-height: 1.8;
+  max-width: 760px;
+}
+.transfer-section > button {
+  font-size: 13px;
+  margin-top: 14px;
+}
+.transfer-fields {
+  border: 0;
+  padding: 0;
+  margin: 24px 0 0;
+  display: grid;
+  gap: 19px;
+  min-width: 0;
+}
+.transfer-fields label {
+  display: grid;
+  gap: 9px;
+  color: #d2dfd6;
+  font-size: 12px;
+  min-width: 0;
+}
+.transfer-fields input:not([type='checkbox']),
+.transfer-fields select,
+.transfer-fields textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #536859;
+  border-radius: 5px;
+  background: #101a13;
+  color: #e6efe8;
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 13px;
+}
+.transfer-fields input[type='file'] {
+  line-height: 1.8;
+  max-width: 700px;
+}
+.transfer-fields input[type='file']::file-selector-button {
+  margin-right: 12px;
+  border: 1px solid #64806c;
+  border-radius: 4px;
+  background: #24392b;
+  color: #e6efe8;
+  padding: 7px 11px;
+  font: inherit;
+  cursor: pointer;
+}
+.transfer-fields textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  resize: vertical;
+  min-height: 130px;
+  max-height: 380px;
+}
+.transfer-file-name {
+  margin: -8px 0 0;
+  overflow-wrap: anywhere;
+}
+.transfer-policy-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 2fr);
+  gap: 18px;
+  max-width: 800px;
+  align-items: end;
+}
+.transfer-policy-fields .transfer-target {
+  margin: 0 0 9px;
+  font-size: 12px;
+}
+.transfer-target strong,
+.transfer-preview strong {
+  color: #e1eee5;
+  overflow-wrap: anywhere;
+}
+.transfer-replace-warning {
+  color: #e5c5aa !important;
+  margin: 0;
+  border-left: 2px solid #aa8565;
+  padding: 7px 14px;
+}
+.transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+}
+.transfer-actions button {
+  font-size: 12px;
+}
+.transfer-fields:disabled {
+  opacity: 0.65;
+}
+.transfer-preview {
+  border: 1px solid #5b7764;
+  background: #17271c;
+  border-radius: 6px;
+  padding: 24px;
+  margin-top: 29px;
+}
+.transfer-preview-heading p {
+  margin: 0 0 24px;
+}
+.transfer-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 24px;
+  padding: 0;
+  margin: 0 0 25px;
+}
+.transfer-counts > div {
+  border-top: 1px solid #395741;
+  padding: 14px 0;
+}
+.transfer-counts dt {
+  color: #adc2b3;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.transfer-counts dd {
+  color: #e6f1e9;
+  font-size: 21px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.transfer-preview .transfer-preview-expiry,
+.transfer-preview .transfer-backup-note {
+  font-size: 11px;
+}
+.transfer-warnings {
+  color: #e7caaf;
+  line-height: 1.8;
+  padding-left: 19px;
+  font-size: 12px;
+}
+.transfer-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #ead7bf;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 24px 0 18px;
+}
+.transfer-confirm input {
+  accent-color: #d7b088;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.transfer-preview > button {
+  font-size: 12px;
+  margin-top: 5px;
+}
+button.transfer-replace-button {
+  color: #21190e;
+  background: #e0bc95;
+  border-color: #e0bc95;
+  font-weight: 600;
+}
+button.transfer-replace-button:hover {
+  background: #eed2af;
+}
+.transfer-result {
+  border-left: 3px solid #b0d6ba;
+  margin-top: 30px;
+  padding: 5px 0 5px 20px;
+}
+.transfer-result a {
+  display: inline-block;
+  color: #c8e8d1;
+  text-underline-offset: 4px;
+  font-size: 13px;
+  padding: 6px 0;
+}
+.transfer-error {
+  border-left: 3px solid #c78575;
+  padding: 3px 0 3px 17px;
+  margin: 25px 0;
+}
+.transfer-error p {
+  margin: 6px 0;
+}
+.transfer-error li {
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.transfer-recovery code {
+  background: #1f3025;
+  border-radius: 3px;
+  color: #cbdfd1;
+  font-size: 11px;
+  padding: 3px 6px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .transfer-heading h2 {
+    font-size: 23px;
+  }
+  .transfer-policy-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .transfer-preview {
+    padding: 21px 17px;
+  }
+  .transfer-counts {
+    gap: 0 15px;
+  }
+  .transfer-counts dt {
+    font-size: 10px;
+  }
+  .transfer-fields input[type='file'] {
+    font-size: 11px;
+  }
+}

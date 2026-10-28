@@ -1,0 +1,20 @@
+name: portfolio
+services:
+  portfolio:
+    image: ghcr.io/ryanonmars/portfolio:local
+    build: .
+    init: true
+    environment:
+      PUBLIC_ORIGIN: '${PUBLIC_ORIGIN:-http://127.0.0.1:${PORT:-3088}}'
+    ports:
+      - '127.0.0.1:${PORT:-3088}:3088'
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

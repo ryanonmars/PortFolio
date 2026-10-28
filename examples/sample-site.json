@@ -1,0 +1,197 @@
+{
+  "description": "Synthetic development seed blueprint only. For portable schemaVersion 1 site JSON, seed into disposable data and use the authenticated site export.",
+  "schema_version": "fixture-blueprint-1",
+  "workspace": { "name": "Example Workspace" },
+  "site": { "name": "Example Lab" },
+  "vlans": [
+    {
+      "id": 1,
+      "name": "Management",
+      "color": "#31A37B",
+      "description": "Example management LAN"
+    },
+    {
+      "id": 20,
+      "name": "Servers",
+      "color": "#428DEB",
+      "description": "Example server LAN"
+    },
+    {
+      "id": 30,
+      "name": "Clients",
+      "color": "#E5BE36",
+      "description": "Example client LAN"
+    }
+  ],
+  "subnets": [
+    { "cidr": "10.77.1.0/24", "vlan_id": 1, "gateway": "10.77.1.1" },
+    { "cidr": "10.77.20.0/24", "vlan_id": 20, "gateway": "10.77.20.1" },
+    { "cidr": "10.77.30.0/24", "vlan_id": 30, "gateway": "10.77.30.1" }
+  ],
+  "devices": [
+    {
+      "key": "example-router",
+      "type": "router",
+      "display_name": "Example Router",
+      "manufacturer": "Example Corp",
+      "model": "XR-11",
+      "ports": [
+        {
+          "name": "Port 1",
+          "kind": "sfp_plus",
+          "speed": "10G",
+          "mode": "other"
+        },
+        {
+          "name": "Port 2",
+          "kind": "sfp_plus",
+          "speed": "10G",
+          "mode": "other"
+        },
+        { "name": "Port 3", "kind": "sfp", "speed": "1G", "mode": "other" },
+        {
+          "name": "Port 4",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "routed",
+          "description": "WAN / Internet uplink"
+        },
+        {
+          "name": "Port 5",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "trunk",
+          "native_vlan": 1,
+          "pvid": 1,
+          "tagged_vlans": [20, 30],
+          "description": "Switch uplink"
+        },
+        {
+          "name": "Port 6",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 1
+        },
+        {
+          "name": "Port 7",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 1
+        },
+        {
+          "name": "Port 8",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 1
+        },
+        {
+          "name": "Port 9",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 1
+        },
+        {
+          "name": "Port 10",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 1
+        },
+        {
+          "name": "Port 11",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 1
+        }
+      ]
+    },
+    {
+      "key": "example-switch",
+      "type": "switch",
+      "display_name": "Example 8-Port Switch",
+      "manufacturer": "Example Corp",
+      "model": "XS-8",
+      "ports": [
+        {
+          "name": "Port 1",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "trunk",
+          "native_vlan": 1,
+          "pvid": 1,
+          "tagged_vlans": [20, 30],
+          "description": "Router uplink"
+        },
+        {
+          "name": "Port 2",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 20,
+          "pvid": 20,
+          "external_destination": "Example server"
+        },
+        {
+          "name": "Port 3",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 20,
+          "pvid": 20
+        },
+        {
+          "name": "Port 4",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 30,
+          "pvid": 30
+        },
+        {
+          "name": "Port 5",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 30,
+          "pvid": 30
+        },
+        {
+          "name": "Port 6",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 30,
+          "pvid": 30
+        },
+        {
+          "name": "Port 7",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 30,
+          "pvid": 30
+        },
+        {
+          "name": "Port 8",
+          "kind": "rj45",
+          "speed": "1G",
+          "mode": "access",
+          "native_vlan": 1,
+          "pvid": 1
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": { "device_key": "example-router", "port": "Port 5" },
+      "to": { "device_key": "example-switch", "port": "Port 1" },
+      "cable_type": "Cat6"
+    }
+  ]
+}

@@ -1,0 +1,218 @@
+.site-view-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 12px 0;
+  background: transparent;
+  color: #a8b3ac;
+}
+.site-view-tabs button[aria-current='page'] {
+  border-bottom-color: #b8e1c4;
+  color: #e5f0e8;
+}
+.site-view-tabs {
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.site-configure {
+  min-width: 0;
+}
+.configure-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 24px 0;
+}
+.configure-toolbar h2,
+.configure-toolbar h3 {
+  margin: 0;
+}
+.configure-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid #354038;
+  padding-bottom: 20px;
+  margin-bottom: 24px;
+}
+.configure-nav button {
+  background: transparent;
+}
+.configure-nav button[aria-pressed='true'] {
+  background: #203629;
+  border-color: #8aaf97;
+  color: #e1f0e6;
+}
+.configure-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13px;
+  color: #c4cec7;
+}
+.configure-field input,
+.configure-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #425249;
+  border-radius: 4px;
+  padding: 10px;
+  color: #edf1ed;
+  background: #111a15;
+  font: inherit;
+}
+.configure-field input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: #b8e1c4;
+}
+.configure-field input[type='color'] {
+  height: 42px;
+  padding: 3px;
+}
+.configure-editor {
+  border-top: 1px solid #39483e;
+  padding: 24px 0;
+  margin: 20px 0;
+}
+.configure-editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.configure-form-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.configure-records {
+  list-style: none;
+  padding: 0;
+  margin: 24px 0;
+}
+.configure-records > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid #293a2e;
+  overflow-wrap: anywhere;
+}
+.configure-records p {
+  color: #a8b3ac;
+  font-size: 13px;
+  margin: 7px 0;
+}
+.device-toolbar .configure-field {
+  min-width: min(100%, 230px);
+  flex: 1;
+  max-width: 430px;
+}
+.vlan-color-label {
+  font:
+    12px ui-monospace,
+    monospace;
+  color: #b9c6bf;
+}
+@media (max-width: 640px) {
+  .configure-form-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .configure-toolbar {
+    align-items: stretch;
+  }
+  .configure-toolbar .actions {
+    flex-wrap: wrap;
+  }
+  .configure-nav button {
+    flex-grow: 1;
+  }
+  .site-view-tabs {
+    gap: 18px;
+  }
+}
+
+/* Keep configuration centered on the working table rather than introductory space. */
+main:has(.site-configure) {
+  max-width: none;
+  padding-top: 28px;
+}
+main:has(.site-configure) .breadcrumbs {
+  margin-bottom: 18px;
+}
+main:has(.site-configure) .page-heading {
+  margin-bottom: 20px;
+}
+main:has(.site-configure) .page-heading-row .intro {
+  margin-top: 7px;
+}
+.site-view-tabs {
+  justify-content: flex-start;
+}
+.site-view-tabs .documented-label {
+  margin-left: auto;
+}
+.site-configure .configure-toolbar {
+  margin: 16px 0;
+}
+.site-configure .configure-nav {
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+}
+.site-configure .port-grid {
+  margin-top: 20px;
+}
+.site-configure .grid-tools {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 24px;
+  margin: 14px 0;
+}
+.site-configure .grid-tool {
+  min-width: 0;
+  padding: 7px 0;
+  border-bottom: 0;
+}
+.site-configure .grid-tool[open] {
+  flex-basis: 100%;
+  border-bottom: 1px solid #354439;
+  padding-bottom: 14px;
+}
+.site-configure .grid-filter {
+  margin: 14px 0;
+}
+.site-configure .connection-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 340px;
+}
+.site-configure .connection-cell > span {
+  flex: 1 1 160px;
+  overflow-wrap: anywhere;
+}
+.site-configure .connection-cell > select {
+  width: auto;
+  min-width: 150px;
+  flex: 1 1 150px;
+}
+.site-configure .connection-cell > details {
+  flex-basis: 100%;
+}
+@media (max-width: 640px) {
+  main:has(.site-configure) {
+    padding-top: 22px;
+  }
+  .site-configure .grid-tools {
+    column-gap: 20px;
+  }
+}

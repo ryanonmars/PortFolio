@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+pnpm-lock.yaml
+data
+backups
+playwright-report
+test-results
+docs
+agents
+AGENTS.md
+START_HERE.md
