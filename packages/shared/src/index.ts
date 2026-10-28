@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './board.js';
 export const application = {
   name: 'PortFolio',
   tagline: 'Visual Network Documentation',

@@ -16,6 +16,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { backup, DatabaseSync } from 'node:sqlite';
+import { migrateLegacyBoards } from './board-migration.js';
 
 export interface DatabaseOptions {
   dataDir: string;
@@ -106,6 +107,7 @@ export function openDatabase({
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA synchronous = FULL');
     migrateDatabase(db, migrationsDir);
+    migrateLegacyBoards(db);
     return db;
   } catch (error) {
     db.close();

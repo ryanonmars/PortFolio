@@ -92,7 +92,7 @@ describe('private SQLite recovery', () => {
     const restored = openDatabase({ dataDir: target });
     expect(
       restored.prepare('SELECT count(*) AS count FROM schema_migrations').get(),
-    ).toEqual({ count: 6 });
+    ).toEqual({ count: 7 });
     expect(
       restored.prepare('SELECT count(*) AS count FROM connections').get(),
     ).toEqual({ count: 0 });

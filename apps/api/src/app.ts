@@ -14,6 +14,7 @@ import { registerGrid } from './grid.js';
 import { registerTransfer } from './transfer.js';
 import { registerNavigation } from './navigation.js';
 import { ApiError } from './errors.js';
+import { registerBoards } from './boards.js';
 
 export interface AppOptions {
   dataDir: string;
@@ -88,6 +89,7 @@ export async function createApp(options: AppOptions) {
     throw error;
   });
   registerOrganization(app, db, security.requireAuth);
+  registerBoards(app, db, security.requireAuth);
   registerNavigation(app, db, security.requireAuth);
   registerTemplates(app, db, security.requireAuth);
   registerLogicalConnections(app, db, security.requireAuth);
