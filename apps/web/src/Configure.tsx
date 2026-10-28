@@ -1,3 +1,4 @@
+import { DeviceDetail } from './DeviceDetail.js';
 import { DeviceCreation } from './DeviceCreation.js';
 import { Templates } from './Templates.js';
 import { Connections } from './Connections.js';
@@ -97,11 +98,24 @@ export function SiteView({
       url.searchParams.set('view', 'configure');
       if (deviceId) url.searchParams.set('deviceId', deviceId);
       if (portId) url.searchParams.set('portId', portId);
+      if (deviceId) url.searchParams.set('deviceView', 'ports');
     } else {
-      for (const key of ['view', 'pane', 'deviceId', 'portId'])
+      for (const key of [
+        'view',
+        'pane',
+        'deviceId',
+        'portId',
+        'deviceView',
+        'recordId',
+        'recordKind',
+      ])
         url.searchParams.delete(key);
     }
-    window.history.replaceState(null, '', url.pathname + url.search);
+    if (
+      url.pathname + url.search !==
+      window.location.pathname + window.location.search
+    )
+      window.history.pushState(null, '', url.pathname + url.search);
     onModeChange(next);
   }
   const controls: FormControls = {
@@ -166,6 +180,12 @@ function Configure({
   });
   const [creationPane, setCreationPane] = useState(createPane);
   const [epoch, setEpoch] = useState(0);
+  const focusId =
+    new URLSearchParams(window.location.search).get('recordId') ?? undefined;
+  const focusKind =
+    new URLSearchParams(window.location.search).get('recordKind') === 'logical'
+      ? 'logical'
+      : 'physical';
   const [refreshing, setRefreshing] = useState(false);
   const active = useRef(false);
   const requestNumber = useRef(0);
@@ -230,28 +250,35 @@ function Configure({
   }
   return (
     <section className="site-configure" aria-label="Site configuration">
-      <div className="configure-toolbar">
-        <h2>
-          {
-            {
-              devices: 'Equipment',
-              vlans: 'VLANs',
-              network: 'Networks & Subnets',
-              racks: 'Racks',
-              transfer: 'Import & Export',
-              connections: 'Connections',
-              templates: 'Templates',
-            }[pane]
-          }
-        </h2>
-        <button
-          type="button"
-          disabled={busy || refreshing}
-          onClick={() => void reload()}
-        >
-          Refresh saved records
-        </button>
-      </div>
+      {!(
+        pane === 'devices' &&
+        new URLSearchParams(window.location.search).get('deviceId')
+      ) && (
+        <>
+          <div className="configure-toolbar">
+            <h2>
+              {
+                {
+                  devices: 'Equipment',
+                  vlans: 'VLANs',
+                  network: 'Networks & Subnets',
+                  racks: 'Racks',
+                  transfer: 'Import & Export',
+                  connections: 'Connections',
+                  templates: 'Templates',
+                }[pane]
+              }
+            </h2>
+            <button
+              type="button"
+              disabled={busy || refreshing}
+              onClick={() => void reload()}
+            >
+              Refresh saved records
+            </button>
+          </div>
+        </>
+      )}
       {error && (
         <p className="error-message" role="alert">
           {error}
@@ -268,8 +295,9 @@ function Configure({
               data={data}
               setData={setData}
               onChanged={refresh}
+              onReload={reload}
               controls={controls}
-              busy={busy}
+              busy={busy || refreshing}
               initiallyCreating={creationPane === 'devices'}
               onLocationChange={onLocationChange}
             />
@@ -277,6 +305,8 @@ function Configure({
           {pane === 'connections' && (
             <Connections
               siteId={siteId}
+              focusId={focusId}
+              focusKind={focusKind}
               controls={controls}
               initiallyCreating={creationPane === 'connections'}
             />
@@ -284,6 +314,7 @@ function Configure({
           {pane === 'templates' && (
             <Templates
               siteId={siteId}
+              focusId={focusId}
               controls={controls}
               initiallyCreating={creationPane === 'templates'}
             />
@@ -309,6 +340,8 @@ function Configure({
               siteId={siteId}
               vlans={data.vlans}
               devices={data.devices}
+              subnets={data.subnets}
+              focusId={focusId}
               initiallyCreating={creationPane === 'vlans'}
               controls={controls}
               onChanged={refresh}
@@ -318,6 +351,7 @@ function Configure({
             <NetworkSettings
               siteId={siteId}
               subnets={data.subnets}
+              focusId={focusId}
               initiallyCreating={creationPane === 'network'}
               vlans={data.vlans}
               controls={controls}
@@ -328,6 +362,8 @@ function Configure({
             <RackSettings
               siteId={siteId}
               racks={data.racks}
+              devices={data.devices}
+              focusId={focusId}
               initiallyCreating={creationPane === 'racks'}
               controls={controls}
               onChanged={refresh}
@@ -344,6 +380,7 @@ function Devices({
   data,
   setData,
   onChanged,
+  onReload,
   controls,
   busy,
   initiallyCreating = false,
@@ -354,6 +391,7 @@ function Devices({
   data: Data;
   setData: React.Dispatch<React.SetStateAction<Data | null>>;
   onChanged: () => Promise<void>;
+  onReload: () => Promise<void>;
   controls: FormControls;
   busy: boolean;
   initiallyCreating?: boolean;
@@ -366,19 +404,37 @@ function Devices({
     () =>
       new URLSearchParams(window.location.search).get('portId') ?? undefined,
   );
+  const [deviceView, setDeviceView] = useState<'detail' | 'ports'>(() =>
+    new URLSearchParams(window.location.search).get('deviceView') ===
+      'detail' && !new URLSearchParams(window.location.search).get('portId')
+      ? 'detail'
+      : 'ports',
+  );
   const [editor, setEditor] = useState<Device | 'new' | null>(
     initiallyCreating ? 'new' : null,
   );
   const [error, setError] = useState('');
   const selected = data.devices.find((device) => device.id === selectedId);
-  function selectDevice(id: string) {
+  function selectDevice(
+    id: string,
+    view: 'detail' | 'ports' = 'detail',
+    portId?: string,
+  ) {
     setSelectedId(id);
-    setFocusPortId(undefined);
+    setDeviceView(view);
+    setFocusPortId(portId);
     const url = new URL(window.location.href);
     if (id) url.searchParams.set('deviceId', id);
     else url.searchParams.delete('deviceId');
-    url.searchParams.delete('portId');
-    window.history.replaceState(null, '', url.pathname + url.search);
+    if (portId) url.searchParams.set('portId', portId);
+    else url.searchParams.delete('portId');
+    if (id) url.searchParams.set('deviceView', view);
+    else url.searchParams.delete('deviceView');
+    if (
+      url.pathname + url.search !==
+      window.location.pathname + window.location.search
+    )
+      window.history.pushState(null, '', url.pathname + url.search);
     onLocationChange();
   }
   async function remove() {
@@ -408,54 +464,94 @@ function Devices({
   }
   return (
     <section aria-label="Device configuration">
-      <div className="configure-toolbar device-toolbar">
-        <label className="configure-field">
-          <span>Device</span>
-          <select
-            value={selected?.id ?? ''}
-            disabled={busy || !data.devices.length}
-            onChange={(event) => {
-              if (controls.canLeave()) {
-                selectDevice(event.target.value);
-                setEditor(null);
-              }
-            }}
-          >
-            {!data.devices.length && <option value="">No devices yet</option>}
-            {data.devices.length > 0 && !selected && (
-              <option value="">Choose a device</option>
-            )}
-            {data.devices.map((device) => (
-              <option key={device.id} value={device.id}>
-                {device.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="actions">
-          {selected && (
-            <>
+      {selected && (
+        <div className="configure-toolbar device-toolbar">
+          <div className="actions">
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy}
+              onClick={() => {
+                if (controls.canLeave()) selectDevice('');
+              }}
+            >
+              Equipment inventory
+            </button>
+            {deviceView === 'ports' && (
               <button
                 type="button"
+                className="text-button"
                 disabled={busy}
                 onClick={() => {
-                  if (controls.canLeave()) setEditor(selected);
+                  if (controls.canLeave()) selectDevice(selected.id, 'detail');
                 }}
               >
-                Edit device
+                Device overview
               </button>
-              <button
-                type="button"
-                className="danger"
-                disabled={busy}
-                onClick={() => void remove()}
-              >
-                Delete device
-              </button>
-            </>
-          )}
+            )}
+          </div>
+          <details className="device-secondary-actions">
+            <summary>Device actions</summary>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onReload()}
+            >
+              Refresh saved records
+            </button>
+            <div className="configure-toolbar device-toolbar">
+              <label className="configure-field">
+                <span>Device</span>
+                <select
+                  value={selected?.id ?? ''}
+                  disabled={busy || !data.devices.length}
+                  onChange={(event) => {
+                    if (controls.canLeave()) {
+                      selectDevice(event.target.value);
+                      setEditor(null);
+                    }
+                  }}
+                >
+                  {!data.devices.length && (
+                    <option value="">No devices yet</option>
+                  )}
+                  {data.devices.length > 0 && !selected && (
+                    <option value="">Choose a device</option>
+                  )}
+                  {data.devices.map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="actions">
+                {selected && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (controls.canLeave()) setEditor(selected);
+                      }}
+                    >
+                      Edit device
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={busy}
+                      onClick={() => void remove()}
+                    >
+                      Delete device
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </details>
         </div>
-      </div>
+      )}
       {selectedId &&
         !data.devices.some((device) => device.id === selectedId) && (
           <p role="alert" className="error-message">
@@ -508,6 +604,20 @@ function Devices({
             setEditor(null);
           }}
         />
+      ) : selected && deviceView === 'detail' ? (
+        <DeviceDetail
+          siteId={siteId}
+          device={selected}
+          devices={data.devices}
+          vlans={data.vlans}
+          onConfigure={(portId, deviceId) => {
+            if (controls.canLeave())
+              selectDevice(deviceId ?? selected.id, 'ports', portId);
+          }}
+          onEdit={() => {
+            if (controls.canLeave()) setEditor(selected);
+          }}
+        />
       ) : selected ? (
         <PortGrid
           key={selected.id}
@@ -534,8 +644,13 @@ function Devices({
           onDirtyChange={controls.onDirtyChange}
           onBusyChange={controls.onBusyChange}
         />
-      ) : data.devices.length > 0 ? (
-        <div className="workflow-table-scroll">
+      ) : selectedId ? null : data.devices.length > 0 ? (
+        <div
+          className="workflow-table-wrap"
+          role="region"
+          aria-label="Equipment inventory"
+          tabIndex={0}
+        >
           <table className="workflow-table">
             <thead>
               <tr>

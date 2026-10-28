@@ -4,7 +4,7 @@
 
 Application: **PortFolio** · Private GitHub target: `ryanonmars/portfolio` · Docker: `ghcr.io/ryanonmars/portfolio` · Development: `~/VS_Code/PortFolio`
 
-**Local MVP trial — v0.1.0 candidate.** Open a site to see stacked equipment with detailed RJ45/SFP faceplates. Choose **Configure** to edit its ports, VLANs, network records, custom fields and cables. Records live in SQLite on your server and are shared across browsers. JSON export/import and SQLite recovery are included.
+**Local MVP trial — v0.1.0 candidate.** Open a site to see stacked equipment with detailed RJ45/SFP faceplates. Use the sidebar folders to open saved records. A device opens its visual detail page; **Configure interfaces** opens its compact port editor. Records live in SQLite on your server and are shared across browsers. JSON export/import and SQLite recovery are included.
 
 This is manual documentation: no discovery, telemetry, monitoring, SNMP, SSH or actual network configuration changes. No accounts or example networks are created automatically. No public release or image publication has been made.
 
@@ -18,7 +18,7 @@ PORT=3090 docker compose up -d --build --wait
 
 Open [PortFolio on port 3090](http://127.0.0.1:3090), create your administrator account, then add a workspace and site. This machine uses 3090 because 3088 belongs to another app. Compose defaults to 3088 when PORT is omitted. Existing `./data` is retained; use a separate source directory/data bind for a disposable fresh trial.
 
-Search is at the top of the sidebar. Workspaces are expanded by default, with their sites directly beneath them. Click a site once to open its Visual Overview; collapse workspace branches when useful. One separate Site Tools section stays visible for the selected site: Visual Overview, Equipment, VLANs, Networks & Subnets, Connections, Racks, Templates, and Import & Export. **+** beside Workspaces creates a workspace; **+** beside a workspace creates its site. Tool plus buttons open their existing creation forms. **Manage** beside Workspaces or the Site Tools heading opens the relevant list with **Edit** and **Delete** controls. Deleting a workspace or site removes its contents after one impact confirmation. Global Settings also provides organization management and backup guidance. On a small screen, open **Menu**.
+Search is at the top of the sidebar. Workspaces are expanded by default, with their sites directly beneath them. Click a site once to open its Visual Overview; collapse workspace branches when useful. The selected site has one file-explorer section: Visual Overview, Equipment, VLANs, Networks & Subnets, Connections, Racks, Templates, and Import & Export. **+** beside Workspaces creates a workspace; **+** beside a workspace creates its site. Category labels open their overview, chevrons reveal saved records, and plus buttons open creation forms. Records appear and update directly from the database; no individual ports clutter the tree. **Manage** beside Workspaces or the Site Tools heading opens the relevant list with **Edit** and **Delete** controls. Deleting a workspace or site removes its contents after one impact confirmation. Global Settings also provides organization management and backup guidance. On a small screen, open **Menu**.
 
 1. Choose Equipment **+**, pick Router, Switch, Firewall, Wireless access point, Server or Custom device, and adjust its port groups. Quantities, connector types, modes, front/rear faces and group order are editable. Save creates the device and ports together. Racks, IP addresses and subnets are optional.
 2. Define VLANs when needed. In Configure, set native/untagged VLAN, independent PVID and tagged memberships; save, then return to Visual.
@@ -152,20 +152,21 @@ API_TARGET=http://127.0.0.1:3092 pnpm dev:web
 
 The seed requires an explicit development/test environment and data directory, refuses an existing workspace inventory, and creates no credentials. Open Vite to set up the administrator normally. It creates the blueprint's reciprocal router-to-switch cable. Never seed your production data directory. The blueprint is a development seed format; use the authenticated site export for portable schemaVersion1 JSON.
 
-M2 IPAM accepts canonical IPv4 CIDRs only (zero host bits); DNS and DHCP are IPv4-only. Device management addresses may be IPv4 or IPv6. Gateways and DHCP ranges must be inside the subnet; network/broadcast endpoints are excluded except for /31 and /32. Port generation accepts up to256 per request, at most512 per device.
+M2 IPAM accepts canonical IPv4 CIDRs only (zero host bits); DNS and DHCP are IPv4-only. Device management addresses may be IPv4 or IPv6. Gateways and DHCP ranges must be inside the subnet; network/broadcast endpoints are excluded except for /31 and /32. Sequential port generation accepts up to256 per request. Applying a saved port layout can add mixed connector/front-rear groups atomically; the total remains at most512 ports per device.
 
-## Configure a site
+## Browse and configure records
 
-Select a site in its default Visual Overview, then choose **Equipment**. Select an equipment row to open its editable port table. Add a device without creating racks, VLANs or subnets first; generate8/24/48 ports or use a custom count. The Devices & ports, VLANs, Network and Racks contexts stay within the same site.
+Workspaces contain directly linked sites. Below them, expand Equipment, VLANs, Networks & Subnets, Connections, Racks or Templates to reveal real records. Search matches saved names, VLAN IDs and networks; large folders show64items initially with **Show more**. Chevron, category label, record and plus actions stay separate. Expansion choices survive ordinary navigation.
 
-- Edit port cells in place, including true routed/WAN mode, independent PVID, native/untagged and tagged VLANs, notes, connector type and **documented** link state. Quick-add VLANs from the grid.
-- Use **Save all changes** for an atomic save of staged core/custom values. Stale or invalid rows leave the entire batch unchanged; drafts remain until explicitly discarded. Tab moves between cells, Enter saves a row outside native selects/textareas/buttons, and Escape restores the current cell.
-- Select rows to stage bulk mode/native changes. Spreadsheet copy/paste uses an explicit seven-column TSV header and validates every row before staging. Unknown VLAN IDs are rejected, not inferred from VLAN names.
-- Hide/reorder columns and define typed text/number/boolean/date/select columns. Definitions and values live on the server; only the user/site-specific column layout is stored in the browser.
-- Larger grids use 64-row pages and load peer choices on demand. Staged changes remain across pages; **Save all changes** saves the entire draft set. The physical faceplate remains a detailed scrollable panel.
-- Connect ports from the Connected to cell. Actions are separate from core saves and require clean row drafts. Occupied endpoints require confirmation of the exact existing cables before atomic replacement; cancelling preserves them. External destination labels remain separate annotations. Disconnect cables before deleting connected devices or ports.
+Selecting a device opens its metadata, approved front panel and compact interface/connection summary. **Configure interfaces** opens the editor. Equipment also provides a straightforward inventory; VLAN records show their description, color, related subnets and actual native/tagged members. Networks, racks, templates and connections have focused views.
 
-The single runtime remains local at the configured loopback port. No scans or actual device changes occur.
+- The port table starts with seven core columns: Port, Interface type, Mode, Native/Untagged VLAN, Tagged VLANs, Connected to and Documented link state. Cells are readable text until clicked or activated with Enter/F2. Tab/arrows navigate; Enter finishes the local edit; Escape restores the current saved cell without discarding other drafts.
+- Select a row for the details inspector, including PVID, speed, face/order, external destination, notes and typed custom fields. Optional columns remain configurable. Secondary row Save/Delete actions live in a small Actions menu.
+- **Save all changes** atomically saves all staged core/custom values across64-row pages. Invalid or stale rows leave the whole batch unchanged and retain drafts. Bulk tools and existing header-based TSV preview remain available. Direct rectangular clipboard paste validates every candidate before staging; unsupported cable/custom edits require the inspector rather than silently changing them.
+- **Add ports** supports one port, sequential groups and existing built-in/saved layouts with RJ45/SFP/SFP+/other connector types. Applying a layout to the existing device is versioned and atomic; it never creates another device or partially adds groups.
+- Structured cable actions remain separate from core saves and require clean row drafts. Exact replacement confirmation protects occupied endpoints; external labels remain annotations. Refresh/site/record navigation protects unsaved changes.
+
+The single runtime remains local at the configured loopback port. No scanning or live device changes occur.
 
 ## Equipment faceplates
 

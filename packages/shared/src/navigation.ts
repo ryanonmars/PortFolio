@@ -18,6 +18,9 @@ export interface NavigationTarget {
   pane?: ConfigurePane;
   deviceId?: string;
   portId?: string;
+  deviceView?: 'detail' | 'ports';
+  recordId?: string;
+  recordKind?: 'physical' | 'logical';
 }
 export interface NavigationWorkspace {
   id: string;
@@ -38,6 +41,17 @@ export interface NavigationData {
   devices: NavigationDevice[];
 }
 
+export type SiteFolder = Exclude<ConfigurePane, 'transfer'>;
+export interface NavigationRecord {
+  id: string;
+  label: string;
+  kind?: 'physical' | 'logical';
+}
+export interface SiteNavigationData {
+  siteId: string;
+  records: Record<SiteFolder, NavigationRecord[]>;
+}
+
 export function navigationUrl(target: NavigationTarget): string {
   if (target.settings) {
     const params = new URLSearchParams();
@@ -55,6 +69,22 @@ export function navigationUrl(target: NavigationTarget): string {
         params.set('deviceId', target.deviceId);
       if ((!target.pane || target.pane === 'devices') && target.portId)
         params.set('portId', target.portId);
+      if (
+        (!target.pane || target.pane === 'devices') &&
+        target.deviceId &&
+        target.deviceView
+      )
+        params.set('deviceView', target.portId ? 'ports' : target.deviceView);
+      if (
+        target.pane &&
+        target.pane !== 'devices' &&
+        target.pane !== 'transfer' &&
+        target.recordId
+      ) {
+        params.set('recordId', target.recordId);
+        if (target.pane === 'connections' && target.recordKind)
+          params.set('recordKind', target.recordKind);
+      }
     }
     return `/sites/${encodeURIComponent(target.siteId)}${params.size ? '?' + params.toString() : ''}`;
   }
@@ -96,6 +126,19 @@ export function navigationTarget(
       const portId = params.get('portId');
       if (deviceId) target.deviceId = deviceId;
       if (portId) target.portId = portId;
+      const deviceView = params.get('deviceView');
+      if (deviceId && (deviceView === 'detail' || deviceView === 'ports'))
+        target.deviceView = portId ? 'ports' : deviceView;
+    } else if (target.pane !== 'transfer') {
+      const recordId = params.get('recordId');
+      if (recordId) target.recordId = recordId;
+      const kind = params.get('recordKind');
+      if (
+        recordId &&
+        target.pane === 'connections' &&
+        (kind === 'physical' || kind === 'logical')
+      )
+        target.recordKind = kind;
     }
   }
   return target;

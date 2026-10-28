@@ -13,6 +13,7 @@ import {
   createPortSchema,
   generatePortsSchema,
   createVlanSchema,
+  type DeviceTemplate,
   type Device,
   type Port,
   type Vlan,
@@ -34,6 +35,7 @@ import {
   pasteHeaders,
   type ColumnPreference,
 } from './grid/helpers.js';
+import { compactCellText, parseCellMatrix } from './grid/compact.js';
 import './grid/grid.css';
 
 export interface PortGridProps {
@@ -60,14 +62,14 @@ type Snapshot = {
 type Draft = { port: Port; customValues: Record<string, CustomValue> };
 const labels: Record<string, string> = {
   name: 'Port',
-  kind: 'Kind',
+  kind: 'Interface type',
   speed: 'Speed',
   mode: 'Mode',
   nativeVlanRef: 'Native/Untagged VLAN',
   pvid: 'PVID',
   taggedVlanRefs: 'Tagged VLANs',
   connectedTo: 'Connected to',
-  documentedLinkState: 'Link state (documented)',
+  documentedLinkState: 'Documented link state',
   externalDestinationLabel: 'External destination',
   description: 'Description/Notes',
   face: 'Face',
@@ -136,6 +138,41 @@ export function PortGrid({
   onBusyChange,
   focusPortId,
 }: PortGridProps) {
+  const [inspectedId, setInspectedId] = useState<string | null>(
+    focusPortId ?? null,
+  );
+  const [editingCell, setEditingCell] = useState<{
+    portId: string;
+    column: string;
+  } | null>(null);
+  const [templates, setTemplates] = useState<DeviceTemplate[]>([]);
+  const [templateId, setTemplateId] = useState('');
+  useEffect(() => {
+    let active = true;
+    void api<{ templates: DeviceTemplate[] }>('/device-templates')
+      .then((result) => {
+        if (active) setTemplates(result.templates);
+      })
+      .catch(() => {
+        /* Template loading has its own retry action. */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!editingCell) return;
+    const frame = requestAnimationFrame(() => {
+      const cell = gridRoot.current?.querySelector<HTMLElement>(
+        `td[data-port-cell="${CSS.escape(editingCell.portId + ':' + editingCell.column)}"]`,
+      );
+      // A later pointer/keyboard choice wins over deferred editor autofocus.
+      const active = document.activeElement;
+      if (active && active !== document.body && !cell?.contains(active)) return;
+      cell?.querySelector<HTMLElement>('input,select,textarea')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editingCell]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [loading, setLoading] = useState(true);
@@ -178,7 +215,7 @@ export function PortGrid({
       `tr[data-port-id="${CSS.escape(focusPortId)}"]`,
     );
     const control = row?.querySelector<HTMLElement>(
-      'td[data-column="name"] input',
+      'td[data-column="name"] button',
     );
     if (!row) {
       const targetPage = portTargetPage(snapshot.ports, focusPortId);
@@ -475,7 +512,7 @@ export function PortGrid({
   function escapeCell(
     port: Port,
     column: string,
-    event: KeyboardEvent<HTMLTableCellElement>,
+    event: KeyboardEvent<HTMLElement>,
   ) {
     if (column === 'connectedTo') return;
     if (hasCableDraft) return;
@@ -859,11 +896,86 @@ export function PortGrid({
   const visiblePorts = pagination.items;
   const lazyConnections = snapshot.peers.length > 64;
   const visibleColumns = columns.filter((column) => column.visible);
-  function renderCell(port: Port, column: string): ReactNode {
+  const inspectedPort = currentPorts.find((port) => port.id === inspectedId);
+  function focusCell(portId: string, column: string) {
+    requestAnimationFrame(() =>
+      gridRoot.current
+        ?.querySelector<HTMLElement>(
+          `td[data-port-cell="${CSS.escape(portId + ':' + column)}"] button.compact-cell`,
+        )
+        ?.focus(),
+    );
+  }
+  function openCell(port: Port, column: string) {
+    if (hasCableDraft || pending || fieldBusy || fieldDirty) return;
+    setInspectedId(port.id);
+    if (column !== 'connectedTo') setEditingCell({ portId: port.id, column });
+    else setEditingCell(null);
+  }
+  function cellKey(
+    port: Port,
+    column: string,
+    event: KeyboardEvent<HTMLTableCellElement>,
+  ) {
+    const editing =
+      editingCell?.portId === port.id && editingCell.column === column;
+    if (event.key === 'Escape' && editing) {
+      escapeCell(port, column, event);
+      setEditingCell(null);
+      focusCell(port.id, column);
+      return;
+    }
+    if (!editing && ['Enter', 'F2'].includes(event.key)) {
+      event.preventDefault();
+      openCell(port, column);
+      return;
+    }
+    if (
+      editing &&
+      event.key === 'Enter' &&
+      !(event.target instanceof HTMLTextAreaElement)
+    ) {
+      event.preventDefault();
+      setEditingCell(null);
+      focusCell(port.id, column);
+      return;
+    }
+    if (
+      event.key === 'Tab' ||
+      (!editing &&
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key))
+    ) {
+      const row = visiblePorts.findIndex((item) => item.id === port.id);
+      const col = visibleColumns.findIndex((item) => item.id === column);
+      let index = row * visibleColumns.length + col;
+      index +=
+        event.key === 'ArrowUp'
+          ? -visibleColumns.length
+          : event.key === 'ArrowDown'
+            ? visibleColumns.length
+            : event.key === 'ArrowLeft' ||
+                (event.key === 'Tab' && event.shiftKey)
+              ? -1
+              : 1;
+      if (index >= 0 && index < visiblePorts.length * visibleColumns.length) {
+        event.preventDefault();
+        setEditingCell(null);
+        focusCell(
+          visiblePorts[Math.floor(index / visibleColumns.length)]!.id,
+          visibleColumns[index % visibleColumns.length]!.id,
+        );
+      } else if (editing) setEditingCell(null);
+    }
+  }
+  function renderCell(
+    port: Port,
+    column: string,
+    view: 'table' | 'inspector' = 'table',
+  ): ReactNode {
     const label = `${port.name} ${labels[column] ?? snapshot!.fields.find((field) => `custom:${field.id}` === column)?.title ?? column}`;
     const disabled = pending || fieldBusy || fieldDirty || hasCableDraft;
     const invalid = Boolean(errors[port.id]?.[column]);
-    const errorId = `port-error-${port.id}-${column}`;
+    const errorId = `port-error-${view}-${port.id}-${column}`;
     if (column.startsWith('custom:')) {
       const field = snapshot!.fields.find(
         (item) => `custom:${item.id}` === column,
@@ -1198,15 +1310,19 @@ export function PortGrid({
       <div className="grid-header">
         <div>
           <h2 id="ports-heading">Ports · {device.displayName}</h2>
-          <p className="grid-help">
-            Tab moves between cells. Enter saves the current row. Escape
-            restores the current cell. Link state is manually documented.
-          </p>
+          <p className="grid-help">Edits stay staged until Save all changes.</p>
         </div>
         <div className="grid-actions">
           <button
             type="button"
-            disabled={!dirty || pending || fieldBusy || fieldDirty || conflict}
+            disabled={
+              !dirty ||
+              pending ||
+              fieldBusy ||
+              fieldDirty ||
+              hasCableDraft ||
+              conflict
+            }
             onClick={() => void save()}
           >
             Save all changes
@@ -1263,6 +1379,70 @@ export function PortGrid({
               resolved.
             </p>
           )}
+          <form
+            className="grid-tool-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const template = templates.find((item) => item.id === templateId);
+              if (!template || optionalBusy) return;
+              setPending(true);
+              setError('');
+              try {
+                await api(
+                  `/sites/${siteId}/devices/${device.id}/ports/from-template`,
+                  'POST',
+                  {
+                    rowVersion: snapshot.device.rowVersion,
+                    groups: template.groups,
+                  },
+                );
+                await reload();
+                if (mounted.current) {
+                  setTemplateId('');
+                  onSaved?.();
+                }
+              } catch (error) {
+                if (mounted.current) setError(message(error));
+              } finally {
+                if (mounted.current) setPending(false);
+              }
+            }}
+          >
+            <label>
+              Port template
+              <select
+                value={templateId}
+                onChange={(event) => setTemplateId(event.target.value)}
+                disabled={optionalBusy}
+              >
+                <option value="">Choose a template</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" disabled={optionalBusy || !templateId}>
+              Add template ports
+            </button>
+            {!templates.length && (
+              <button
+                type="button"
+                onClick={() => {
+                  void api<{ templates: DeviceTemplate[] }>('/device-templates')
+                    .then((result) => {
+                      if (mounted.current) setTemplates(result.templates);
+                    })
+                    .catch((error) => {
+                      if (mounted.current) setError(message(error));
+                    });
+                }}
+              >
+                Load port templates
+              </button>
+            )}
+          </form>
           <div className="grid-presets">
             {[8, 24, 48].map((count) => (
               <button
@@ -1648,48 +1828,51 @@ export function PortGrid({
           {selected.length} selected · {Object.keys(drafts).length} staged
         </span>
       </div>
-      <form
-        className="grid-bulk"
-        data-tool="bulk"
-        onChange={() => setToolDirty(true, 'bulk')}
-        onSubmit={applySelected}
-      >
-        <label>
-          Selected rows mode
-          <select name="mode" disabled={hasCableDraft}>
-            <option value="">Keep mode</option>
-            {modes.map(([value, text]) => (
-              <option value={value} key={value}>
-                {text}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Selected rows native VLAN
-          <select name="native" disabled={hasCableDraft}>
-            <option value="keep">Keep native VLAN</option>
-            <option value="">None</option>
-            {vlans.map((vlan) => (
-              <option key={vlan.id} value={vlan.id}>
-                {vlan.vlanId} · {vlan.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="submit"
-          disabled={
-            !selected.length ||
-            pending ||
-            fieldBusy ||
-            fieldDirty ||
-            hasCableDraft
-          }
+      <details className="compact-bulk">
+        <summary>Bulk actions · {selected.length} selected</summary>
+        <form
+          className="grid-bulk"
+          data-tool="bulk"
+          onChange={() => setToolDirty(true, 'bulk')}
+          onSubmit={applySelected}
         >
-          Apply to selected
-        </button>
-      </form>
+          <label>
+            Selected rows mode
+            <select name="mode" disabled={hasCableDraft}>
+              <option value="">Keep mode</option>
+              {modes.map(([value, text]) => (
+                <option value={value} key={value}>
+                  {text}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Selected rows native VLAN
+            <select name="native" disabled={hasCableDraft}>
+              <option value="keep">Keep native VLAN</option>
+              <option value="">None</option>
+              {vlans.map((vlan) => (
+                <option key={vlan.id} value={vlan.id}>
+                  {vlan.vlanId} · {vlan.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={
+              !selected.length ||
+              pending ||
+              fieldBusy ||
+              fieldDirty ||
+              hasCableDraft
+            }
+          >
+            Apply to selected
+          </button>
+        </form>
+      </details>
       {snapshot.ports.length > 64 && (
         <nav className="grid-pagination" aria-label="Port pages">
           <p aria-live="polite">
@@ -1749,121 +1932,308 @@ export function PortGrid({
           </p>
         </nav>
       )}
-      {snapshot.ports.length === 0 ? (
-        <p className="grid-help">
-          No ports yet. Use Add ports to generate physical interfaces.
-        </p>
-      ) : (
-        <div
-          className="port-table-scroll"
-          tabIndex={0}
-          aria-label="Scrollable port table"
-        >
-          <table aria-label={`${device.displayName} ports`}>
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    aria-label="Select all visible ports"
-                    type="checkbox"
-                    checked={
-                      visiblePorts.length > 0 &&
-                      visiblePorts.every((port) => selected.includes(port.id))
-                    }
-                    onChange={(event) =>
-                      setSelected(
-                        event.target.checked
-                          ? [
-                              ...new Set([
-                                ...selected,
-                                ...visiblePorts.map((port) => port.id),
-                              ]),
-                            ]
-                          : selected.filter(
-                              (id) =>
-                                !visiblePorts.some((port) => port.id === id),
-                            ),
-                      )
-                    }
-                  />
-                </th>
-                {visibleColumns.map((column) => (
-                  <th key={column.id} scope="col">
-                    {labels[column.id] ??
-                      snapshot.fields.find(
-                        (field) => `custom:${field.id}` === column.id,
-                      )?.title ??
-                      column.id}
-                  </th>
-                ))}
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiblePorts.map((port) => (
-                <tr
-                  key={port.id}
-                  data-port-id={port.id}
-                  data-dirty={Boolean(drafts[port.id])}
-                >
-                  <td>
+      <div className="compact-port-workspace">
+        {snapshot.ports.length === 0 ? (
+          <p className="grid-help">
+            No ports yet. Use Add ports to generate physical interfaces.
+          </p>
+        ) : (
+          <div
+            className="port-table-scroll"
+            tabIndex={0}
+            aria-label="Scrollable port table"
+          >
+            <table aria-label={`${device.displayName} ports`}>
+              <thead>
+                <tr>
+                  <th>
                     <input
-                      aria-label={`Select ${port.name}`}
+                      aria-label="Select all visible ports"
                       type="checkbox"
-                      checked={selected.includes(port.id)}
+                      checked={
+                        visiblePorts.length > 0 &&
+                        visiblePorts.every((port) => selected.includes(port.id))
+                      }
                       onChange={(event) =>
-                        setSelected((previous) =>
+                        setSelected(
                           event.target.checked
-                            ? [...previous, port.id]
-                            : previous.filter((id) => id !== port.id),
+                            ? [
+                                ...new Set([
+                                  ...selected,
+                                  ...visiblePorts.map((port) => port.id),
+                                ]),
+                              ]
+                            : selected.filter(
+                                (id) =>
+                                  !visiblePorts.some((port) => port.id === id),
+                              ),
                         )
                       }
                     />
-                  </td>
+                  </th>
                   {visibleColumns.map((column) => (
-                    <td
-                      key={column.id}
-                      data-column={column.id}
-                      onKeyDown={(event) => escapeCell(port, column.id, event)}
-                    >
-                      {renderCell(port, column.id)}
-                      {errors[port.id]?.[column.id] && (
-                        <p
-                          id={`port-error-${port.id}-${column.id}`}
-                          className="grid-cell-error"
-                          role="alert"
-                        >
-                          {errors[port.id]?.[column.id]}
-                        </p>
-                      )}
-                    </td>
+                    <th key={column.id} scope="col">
+                      {labels[column.id] ??
+                        snapshot.fields.find(
+                          (field) => `custom:${field.id}` === column.id,
+                        )?.title ??
+                        column.id}
+                    </th>
                   ))}
-                  <td>
-                    <button
-                      type="button"
-                      disabled={
-                        !drafts[port.id] || pending || fieldDirty || conflict
-                      }
-                      onClick={() => void save([port.id])}
-                      aria-label={`Save ${port.name}`}
-                    >
-                      Save row
-                    </button>
-                    <button
-                      type="button"
-                      disabled={optionalBusy || cablesFor(port.id).length > 0}
-                      onClick={() => void deletePort(port)}
-                      aria-label={`Delete ${port.name}`}
-                    >
-                      Delete
-                    </button>
-                  </td>
+                  <th scope="col">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {visiblePorts.map((port) => (
+                  <tr
+                    key={port.id}
+                    data-port-id={port.id}
+                    data-dirty={Boolean(drafts[port.id])}
+                    data-inspected={inspectedId === port.id}
+                    onClick={() => {
+                      if (!hasCableDraft) setInspectedId(port.id);
+                    }}
+                  >
+                    <td>
+                      <input
+                        aria-label={`Select ${port.name}`}
+                        type="checkbox"
+                        checked={selected.includes(port.id)}
+                        onChange={(event) =>
+                          setSelected((previous) =>
+                            event.target.checked
+                              ? [...previous, port.id]
+                              : previous.filter((id) => id !== port.id),
+                          )
+                        }
+                      />
+                    </td>
+                    {visibleColumns.map((column) => (
+                      <td
+                        key={column.id}
+                        data-column={column.id}
+                        data-port-cell={`${port.id}:${column.id}`}
+                        onKeyDown={(event) => cellKey(port, column.id, event)}
+                        onPaste={(event) => {
+                          const text =
+                            event.clipboardData.getData('text/plain');
+                          if (!text.includes('\t') && !text.includes('\n'))
+                            return;
+                          event.preventDefault();
+                          if (
+                            pending ||
+                            fieldBusy ||
+                            fieldDirty ||
+                            hasCableDraft
+                          )
+                            return;
+                          try {
+                            const candidates = parseCellMatrix(
+                              text,
+                              matchingPorts,
+                              port.id,
+                              visibleColumns.map((item) => item.id),
+                              column.id,
+                              vlans,
+                            );
+                            setDrafts((previous) => ({
+                              ...previous,
+                              ...Object.fromEntries(
+                                candidates.map((candidate) => [
+                                  candidate.id,
+                                  {
+                                    port: candidate,
+                                    customValues:
+                                      previous[candidate.id]?.customValues ??
+                                      {},
+                                  },
+                                ]),
+                              ),
+                            }));
+                            setEditingCell(null);
+                            setNotice(
+                              `${candidates.length} pasted rows staged. Save all changes to commit.`,
+                            );
+                          } catch (error) {
+                            setError(message(error));
+                          }
+                        }}
+                        onCopy={(event) => {
+                          if (editingCell) return;
+                          const rows = selected.length
+                            ? matchingPorts.filter((item) =>
+                                selected.includes(item.id),
+                              )
+                            : [port];
+                          event.clipboardData.setData(
+                            'text/plain',
+                            rows
+                              .map((item) =>
+                                visibleColumns
+                                  .map((col) =>
+                                    compactCellText(
+                                      item,
+                                      col.id,
+                                      vlans,
+                                      snapshot.fields,
+                                      snapshot.customValues,
+                                      drafts[item.id]?.customValues,
+                                    ),
+                                  )
+                                  .join('\t'),
+                              )
+                              .join('\n'),
+                          );
+                          event.preventDefault();
+                        }}
+                      >
+                        {editingCell?.portId === port.id &&
+                        editingCell.column === column.id &&
+                        column.id !== 'connectedTo' ? (
+                          renderCell(port, column.id)
+                        ) : (
+                          <button
+                            type="button"
+                            className="compact-cell"
+                            aria-invalid={
+                              Boolean(errors[port.id]?.[column.id]) || undefined
+                            }
+                            aria-describedby={
+                              errors[port.id]?.[column.id]
+                                ? `port-error-table-${port.id}-${column.id}`
+                                : undefined
+                            }
+                            aria-label={`${port.name} ${labels[column.id] ?? column.id}`}
+                            disabled={
+                              pending ||
+                              fieldBusy ||
+                              fieldDirty ||
+                              hasCableDraft
+                            }
+                            onClick={() => openCell(port, column.id)}
+                          >
+                            {column.id === 'connectedTo'
+                              ? cablesFor(port.id)[0]
+                                ? peerLabel(
+                                    cablesFor(port.id)[0]!.endpointAPortId ===
+                                      port.id
+                                      ? cablesFor(port.id)[0]!.endpointBPortId
+                                      : cablesFor(port.id)[0]!.endpointAPortId,
+                                  )
+                                : '—'
+                              : compactCellText(
+                                  port,
+                                  column.id,
+                                  vlans,
+                                  snapshot.fields,
+                                  snapshot.customValues,
+                                  drafts[port.id]?.customValues,
+                                ) || '—'}
+                          </button>
+                        )}
+                        {errors[port.id]?.[column.id] && (
+                          <p
+                            id={`port-error-table-${port.id}-${column.id}`}
+                            className="grid-cell-error"
+                            role="alert"
+                          >
+                            {errors[port.id]?.[column.id]}
+                          </p>
+                        )}
+                      </td>
+                    ))}
+                    <td>
+                      <details className="port-row-menu">
+                        <summary aria-label={`Actions for ${port.name}`}>
+                          •••
+                        </summary>
+                        <button
+                          type="button"
+                          disabled={
+                            !drafts[port.id] ||
+                            pending ||
+                            fieldDirty ||
+                            conflict
+                          }
+                          onClick={() => void save([port.id])}
+                          aria-label={`Save ${port.name}`}
+                        >
+                          Save row
+                        </button>
+                        <button
+                          type="button"
+                          disabled={
+                            optionalBusy || cablesFor(port.id).length > 0
+                          }
+                          onClick={() => void deletePort(port)}
+                          aria-label={`Delete ${port.name}`}
+                        >
+                          Delete
+                        </button>
+                      </details>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {inspectedPort && (
+          <aside className="port-details-inspector" aria-label="Port details">
+            <div className="grid-header">
+              <h3>{inspectedPort.name}</h3>
+              <button
+                type="button"
+                disabled={hasCableDraft}
+                aria-label="Close port details"
+                onClick={() => setInspectedId(null)}
+              >
+                ×
+              </button>
+            </div>
+            <p className="grid-help">
+              Advanced properties · edits are staged until Save all.
+            </p>
+            {[
+              'pvid',
+              'speed',
+              'externalDestinationLabel',
+              'description',
+              'face',
+              'orderIndex',
+              ...snapshot.fields.map((field) => `custom:${field.id}`),
+            ].map((column) => (
+              <div
+                className="inspector-property"
+                key={column}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape')
+                    escapeCell(inspectedPort, column, event);
+                }}
+              >
+                <label>
+                  {labels[column] ??
+                    snapshot.fields.find(
+                      (field) => `custom:${field.id}` === column,
+                    )?.title}
+                </label>
+                {renderCell(inspectedPort, column, 'inspector')}
+                {errors[inspectedPort.id]?.[column] && (
+                  <p
+                    role="alert"
+                    id={`port-error-inspector-${inspectedPort.id}-${column}`}
+                    className="grid-cell-error"
+                  >
+                    {errors[inspectedPort.id]?.[column]}
+                  </p>
+                )}
+              </div>
+            ))}
+            <h4>Connection</h4>
+            {renderCell(inspectedPort, 'connectedTo', 'inspector')}
+          </aside>
+        )}
+      </div>
     </section>
   );
 }

@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   createDeviceSchema,
+  addTemplatePortsSchema,
   createPortSchema,
   deviceRecordSchema,
   generatePortsSchema,
@@ -363,6 +364,53 @@ export function registerEquipment(
         }),
       );
       return reply.code(201).send({ port: readPort(siteId, port.id) });
+    },
+  );
+  app.post(
+    '/api/v1/sites/:siteId/devices/:deviceId/ports/from-template',
+    route,
+    async (request, reply) => {
+      const { siteId, deviceId } = params(request);
+      const input = validate(addTemplatePortsSchema, request.body);
+      const created: string[] = [];
+      mutation(() =>
+        transaction(db, () => {
+          const current = readDevice(siteId, deviceId!);
+          if (current.rowVersion !== input.rowVersion) staleVersion();
+          const count = input.groups.reduce(
+            (sum, group) => sum + group.count,
+            0,
+          );
+          requirePortCapacity(siteId, current.id, count);
+          const startOrder = nextOrder('ports', siteId, current.id);
+          for (const group of input.groups)
+            for (let offset = 0; offset < group.count; offset++) {
+              const orderIndex = startOrder + created.length;
+              const configuration = validate(createPortSchema, {
+                name: `${group.namePrefix}${orderIndex + 1}`,
+                orderIndex,
+                kind: group.kind,
+                speed: group.speed,
+                mode: group.mode,
+                face: group.face,
+              });
+              const port = validate(portRecordSchema, {
+                ...configuration,
+                id: randomUUID(),
+                siteId,
+                deviceId: current.id,
+                rowVersion: 1,
+              });
+              insertPort(port);
+              created.push(port.id);
+            }
+          bumpDevice(siteId, current.id);
+        }),
+      );
+      return reply.code(201).send({
+        device: readDevice(siteId, deviceId!),
+        ports: created.map((id) => readPort(siteId, id)),
+      });
     },
   );
   app.post(

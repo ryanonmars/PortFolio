@@ -22,12 +22,19 @@ type State =
   | { status: 'ready'; snapshot: EquipmentSnapshot };
 export interface EquipmentSummaryProps {
   siteId: string;
+  deviceId?: string;
+  onSnapshotChange?: (
+    snapshot: EquipmentSnapshot | null,
+    error?: string,
+  ) => void;
   onConfigure?: (deviceId?: string, portId?: string) => void;
   onBusyChange?: (busy: boolean) => void;
 }
 
 export function EquipmentSummary({
   siteId,
+  deviceId,
+  onSnapshotChange,
   onConfigure,
   onBusyChange,
 }: EquipmentSummaryProps) {
@@ -40,6 +47,15 @@ export function EquipmentSummary({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const reportSnapshot = useEffectEvent(() =>
+    onSnapshotChange?.(
+      state.status === 'ready' ? state.snapshot : null,
+      state.status === 'error' ? state.message : undefined,
+    ),
+  );
+  useEffect(() => {
+    reportSnapshot();
+  }, [state]);
   const mounted = useRef(false);
   const requestNumber = useRef(0);
   const faceControl = useRef<HTMLSelectElement>(null);
@@ -156,6 +172,13 @@ export function EquipmentSummary({
   }
 
   const snapshot = state.status === 'ready' ? state.snapshot : null;
+  const visibleSnapshot =
+    snapshot && deviceId
+      ? {
+          ...snapshot,
+          devices: snapshot.devices.filter((device) => device.id === deviceId),
+        }
+      : snapshot;
   const selected = snapshot?.ports.find((port) => port.id === selectedId);
   const preview = snapshot?.ports.find(
     (port) => port.id === (previewId ?? selectedId),
@@ -203,11 +226,15 @@ export function EquipmentSummary({
 
   return (
     <section
-      className={`equipment-summary visual-equipment density-${density}`}
+      className={
+        'equipment-summary visual-equipment density-' +
+        density +
+        (deviceId ? ' device-front-panel' : '')
+      }
       aria-labelledby="equipment-title"
     >
       <div className="equipment-toolbar">
-        <h2 id="equipment-title">Equipment</h2>
+        <h2 id="equipment-title">{deviceId ? 'Front panel' : 'Equipment'}</h2>
         <button
           type="button"
           className="subtle"
@@ -235,8 +262,12 @@ export function EquipmentSummary({
         <p className="error-message" role="alert">
           {state.message} Use Refresh equipment to try again.
         </p>
-      ) : !snapshot!.devices.length ? (
-        <p className="equipment-empty">No equipment configured yet.</p>
+      ) : !visibleSnapshot!.devices.length ? (
+        <p className="equipment-empty" role={deviceId ? 'alert' : undefined}>
+          {deviceId
+            ? 'The selected device is unavailable in this site.'
+            : 'No equipment configured yet.'}
+        </p>
       ) : (
         <>
           <div className="visual-controls">
@@ -313,7 +344,7 @@ export function EquipmentSummary({
           </p>
           <div className={`visual-layout${selected ? ' has-inspector' : ''}`}>
             <div className="visual-stack">
-              {groupedDevices(snapshot!).map((group) => (
+              {groupedDevices(visibleSnapshot!).map((group) => (
                 <section
                   className="visual-rack-group"
                   key={group.id}
@@ -372,26 +403,31 @@ export function EquipmentSummary({
                             </p>
                           </div>
                           <div className="visual-device-actions">
-                            <button
-                              type="button"
-                              className="subtle"
-                              disabled={pending || index === 0}
-                              aria-label={`Move ${device.displayName} up`}
-                              onClick={() => void move(device, -1)}
-                            >
-                              ↑
-                            </button>
-                            <button
-                              type="button"
-                              className="subtle"
-                              disabled={
-                                pending || index === group.devices.length - 1
-                              }
-                              aria-label={`Move ${device.displayName} down`}
-                              onClick={() => void move(device, 1)}
-                            >
-                              ↓
-                            </button>
+                            {!deviceId && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="subtle"
+                                  disabled={pending || index === 0}
+                                  aria-label={`Move ${device.displayName} up`}
+                                  onClick={() => void move(device, -1)}
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  className="subtle"
+                                  disabled={
+                                    pending ||
+                                    index === group.devices.length - 1
+                                  }
+                                  aria-label={`Move ${device.displayName} down`}
+                                  onClick={() => void move(device, 1)}
+                                >
+                                  ↓
+                                </button>
+                              </>
+                            )}
                             {onConfigure && (
                               <button
                                 type="button"

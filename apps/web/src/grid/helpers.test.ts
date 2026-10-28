@@ -13,6 +13,7 @@ import {
   rowErrors,
   pasteHeaders,
 } from './helpers.js';
+import { compactCellText, parseCellMatrix } from './compact.js';
 
 const siteId = '10000000-0000-4000-8000-000000000001';
 const vlan: Vlan = {
@@ -56,6 +57,118 @@ const field: PortField = {
 };
 
 describe('grid data helpers', () => {
+  it('uses the seven compact default columns and keeps advanced properties available', () => {
+    expect(
+      columnsFromPreferences(null, [field])
+        .filter((column) => column.visible)
+        .map((column) => column.id),
+    ).toEqual([
+      'name',
+      'kind',
+      'mode',
+      'nativeVlanRef',
+      'taggedVlanRefs',
+      'connectedTo',
+      'documentedLinkState',
+    ]);
+    expect(
+      columnsFromPreferences(null, [field]).some(
+        (column) => column.id === 'pvid',
+      ),
+    ).toBe(true);
+  });
+  it('stages rectangular clipboard edits atomically across canonical rows', () => {
+    const second = {
+      ...port,
+      id: '10000000-0000-4000-8000-000000000009',
+      name: 'Port 2',
+      orderIndex: 1,
+    };
+    const result = parseCellMatrix(
+      'trunk\t20\nrouted\t',
+      [port, second],
+      port.id,
+      ['mode', 'nativeVlanRef'],
+      'mode',
+      [vlan],
+    );
+    expect(
+      result.map((item) => [item.mode, item.nativeVlanRef, item.rowVersion]),
+    ).toEqual([
+      ['trunk', vlan.id, 2],
+      ['routed', null, 2],
+    ]);
+    expect(port.mode).toBe('access');
+    expect(() =>
+      parseCellMatrix(
+        'trunk\t20\naccess\t999',
+        [port, second],
+        port.id,
+        ['mode', 'nativeVlanRef'],
+        'mode',
+        [vlan],
+      ),
+    ).toThrow('VLAN 999');
+  });
+  it('rejects malformed, overflowing and invalid clipboard rectangles without mutating input', () => {
+    expect(() =>
+      parseCellMatrix(
+        'trunk\t20\textra',
+        [port],
+        port.id,
+        ['mode', 'nativeVlanRef'],
+        'mode',
+        [vlan],
+      ),
+    ).toThrow('rectangle');
+    expect(() =>
+      parseCellMatrix('trunk\naccess', [port], port.id, ['mode'], 'mode', [
+        vlan,
+      ]),
+    ).toThrow('beyond');
+    expect(() =>
+      parseCellMatrix('4095\t1G', [port], port.id, ['pvid', 'speed'], 'pvid', [
+        vlan,
+      ]),
+    ).toThrow('Nothing was staged');
+    expect(() =>
+      parseCellMatrix(
+        'other device\tUnknown',
+        [port],
+        port.id,
+        ['connectedTo', 'documentedLinkState'],
+        'connectedTo',
+        [vlan],
+      ),
+    ).toThrow('inspector');
+    expect(port.pvid).toBe(20);
+  });
+  it('formats canonical compact values without confusing explicit false, zero or VLAN UUIDs', () => {
+    expect(compactCellText(port, 'nativeVlanRef', [vlan])).toBe('20');
+    expect(compactCellText({ ...port, mode: 'routed' }, 'mode', [vlan])).toBe(
+      'Routed/WAN',
+    );
+    expect(
+      compactCellText(
+        port,
+        `custom:${field.id}`,
+        [vlan],
+        [field],
+        {},
+        { [field.id]: 0 },
+      ),
+    ).toBe('0');
+    expect(
+      compactCellText(
+        port,
+        `custom:${field.id}`,
+        [vlan],
+        [field],
+        {},
+        { [field.id]: false },
+      ),
+    ).toBe('false');
+  });
   it('round-trips explicit VLAN IDs and preserves versions without confusing names', () => {
     expect(parsePortPaste(portTSV([port], [vlan]), [port], [vlan])).toEqual([
       port,

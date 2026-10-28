@@ -50,14 +50,22 @@ export function columnsFromPreferences(
   const defaults = [
     ...coreColumns.map((id) => ({
       id: String(id),
-      visible: !['face', 'orderIndex'].includes(id),
+      visible: [
+        'name',
+        'kind',
+        'mode',
+        'nativeVlanRef',
+        'taggedVlanRefs',
+        'connectedTo',
+        'documentedLinkState',
+      ].includes(id),
     })),
     ...fields
       .slice()
       .sort((a, b) => a.columnOrder - b.columnOrder)
       .map((field) => ({
         id: `custom:${field.id}`,
-        visible: field.visibleByDefault,
+        visible: false,
       })),
   ];
   if (!raw || raw.length > 100_000) return defaults;

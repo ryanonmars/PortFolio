@@ -1,3 +1,4 @@
+import { gridCell } from './grid-actions.js';
 import { sidebarNavigate } from './sidebar-actions.js';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -360,14 +361,10 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
     `.port-grid tr[data-port-id="${eight.ports[1]!.id}"]`,
   );
   await expect(
-    focusedRow.locator('td[data-column="name"] input'),
+    focusedRow.getByRole('button', { name: 'Port 2 Port', exact: true }),
   ).toBeFocused();
-  await page
-    .getByLabel('Port 2 Native/Untagged VLAN', { exact: true })
-    .selectOption(vlan(30).id);
-  await expect(page.getByLabel('Port 2 PVID', { exact: true })).toHaveValue(
-    '20',
-  );
+  (await gridCell(page, 2, 'Native/Untagged VLAN')).selectOption(vlan(30).id);
+  await expect(await gridCell(page, 2, 'PVID')).toHaveValue('20');
   await page
     .getByRole('button', { name: 'Save all changes', exact: true })
     .click();
@@ -375,7 +372,7 @@ test('renders canonical illustrated equipment at 8/24/48-port densities and keep
     '1 port saved.',
   );
   await expect(
-    page.getByRole('button', { name: 'Edit site', exact: true }),
+    page.getByRole('button', { name: 'Sign out', exact: true }),
   ).toBeEnabled();
   await sidebarNavigate(page, 'Visual Overview');
   await expect(

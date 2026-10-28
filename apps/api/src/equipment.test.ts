@@ -19,6 +19,169 @@ async function fixture() {
   return client;
 }
 const base = (site: Site) => '/api/v1/sites/' + site.id;
+
+describe('append reusable port layouts', () => {
+  it('appends ordered mixed connector/face groups atomically and increments the device once', async () => {
+    const client = await fixture();
+    const site = await client.createSite();
+    const parent = await device(client, site);
+    const original = await port(client, site, parent);
+    const path = base(site) + `/devices/${parent.id}/ports/from-template`;
+    const response = await client.request('POST', path, {
+      rowVersion: 2,
+      groups: [
+        { count: 1, kind: 'rj45', speed: '1G', mode: 'access' },
+        {
+          count: 2,
+          kind: 'sfp_plus',
+          speed: '10G',
+          mode: 'routed',
+          face: 'rear',
+          namePrefix: 'Uplink ',
+        },
+      ],
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json().device.rowVersion).toBe(3);
+    expect(
+      response
+        .json()
+        .ports.map((item: Port) => [
+          item.name,
+          item.orderIndex,
+          item.kind,
+          item.mode,
+          item.face,
+        ]),
+    ).toEqual([
+      ['Port 2', 1, 'rj45', 'access', 'front'],
+      ['Uplink 3', 2, 'sfp_plus', 'routed', 'rear'],
+      ['Uplink 4', 3, 'sfp_plus', 'routed', 'rear'],
+    ]);
+    expect(await readPort(client, site, original.id)).toEqual(original);
+    const before = (
+      await client.request('GET', base(site) + `/devices/${parent.id}/ports`)
+    ).json();
+    expect(
+      (
+        await client.request('POST', path, {
+          rowVersion: 2,
+          groups: [{ count: 1 }],
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await client.request('GET', base(site) + `/devices/${parent.id}/ports`)
+      ).json(),
+    ).toEqual(before);
+    await client.restart();
+    expect(
+      (
+        await client.request('GET', base(site) + `/devices/${parent.id}/ports`)
+      ).json(),
+    ).toEqual(before);
+  });
+  it('rejects empty, cross-site, duplicate-name and late-failure appends without changing original records', async () => {
+    const client = await fixture();
+    const site = await client.createSite();
+    const other = await client.createSite('Other');
+    const parent = await device(client, site);
+    const original = await port(client, site, parent, 'Port 2');
+    const path = base(site) + `/devices/${parent.id}/ports/from-template`;
+    expect(
+      (await client.request('POST', path, { rowVersion: 2, groups: [] }))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await client.request(
+          'POST',
+          base(other) + `/devices/${parent.id}/ports/from-template`,
+          { rowVersion: 2, groups: [{ count: 1 }] },
+        )
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await client.request('POST', path, {
+          rowVersion: 2,
+          groups: [{ count: 1 }],
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await client.request(
+          'POST',
+          path,
+          { rowVersion: 2, groups: [{ count: 1 }] },
+          { 'x-csrf-token': 'invalid' },
+        )
+      ).statusCode,
+    ).toBe(403);
+    client.db.exec(
+      "CREATE TRIGGER fail_append_layout BEFORE INSERT ON ports WHEN NEW.order_index=3 BEGIN SELECT RAISE(ABORT,'Synthetic late append failure'); END;",
+    );
+    expect(
+      (
+        await client.request('POST', path, {
+          rowVersion: 2,
+          groups: [{ count: 3, namePrefix: 'New ' }],
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await client.request('GET', base(site) + `/devices/${parent.id}/ports`)
+      ).json().ports,
+    ).toEqual([original]);
+    expect((await readDevice(client, site, parent.id)).rowVersion).toBe(2);
+  });
+  it('enforces existing capacity and legal final order positions at their boundaries', async () => {
+    const client = await fixture();
+    const site = await client.createSite();
+    const parent = await device(client, site);
+    await port(client, site, parent);
+    const path = base(site) + `/devices/${parent.id}/ports/from-template`;
+    const fill = await client.request('POST', path, {
+      rowVersion: 2,
+      groups: [{ count: 256 }, { count: 255, kind: 'qsfp', face: 'rear' }],
+    });
+    expect(fill.statusCode, fill.body).toBe(201);
+    expect(fill.json().ports).toHaveLength(511);
+    expect(fill.json().ports.at(-1)).toMatchObject({
+      name: 'Port 512',
+      orderIndex: 511,
+    });
+    expect(
+      (
+        await client.request('POST', path, {
+          rowVersion: 3,
+          groups: [{ count: 1 }],
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect((await readDevice(client, site, parent.id)).rowVersion).toBe(3);
+    const edge = await device(client, site, 'Order boundary');
+    const last = await port(client, site, edge, 'Last', { orderIndex: 65535 });
+    expect(
+      (
+        await client.request(
+          'POST',
+          base(site) + `/devices/${edge.id}/ports/from-template`,
+          { rowVersion: 2, groups: [{ count: 1 }] },
+        )
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await client.request('GET', base(site) + `/devices/${edge.id}/ports`)
+      ).json().ports,
+    ).toEqual([last]);
+    expect((await readDevice(client, site, edge.id)).rowVersion).toBe(2);
+  });
+});
 async function device(
   client: Fixture,
   site: Site,

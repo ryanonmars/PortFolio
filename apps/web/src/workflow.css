@@ -150,6 +150,36 @@
 .workflow-memberships li + li {
   margin-top: 6px;
 }
+.record-detail {
+  padding: 16px 0 24px;
+}
+.record-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 18px;
+  margin: 20px 0;
+}
+.record-facts dt {
+  color: #a8b3ac;
+  font-size: 12px;
+  margin-bottom: 7px;
+}
+.record-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.record-description {
+  white-space: pre-wrap;
+  color: #c4cec7;
+  line-height: 1.7;
+}
+.interface-summary th[scope='row'] {
+  color: #edf1ed;
+  font-weight: 500;
+}
+.device-detail > .configure-toolbar {
+  margin-top: 12px;
+}
 @media (max-width: 850px) {
   .workflow-template-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -163,4 +193,11 @@
   .workflow-group-fields {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.device-detail-title {
+  font-size: 26px;
+  line-height: 1.25;
+  margin: 0;
+  letter-spacing: -0.5px;
 }

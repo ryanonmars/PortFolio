@@ -31,11 +31,13 @@ export function Templates({
   controls,
   initiallyCreating = false,
   onChanged,
+  focusId,
 }: {
   siteId: string;
   controls: FormControls;
   initiallyCreating?: boolean;
   onChanged?: () => Promise<void> | void;
+  focusId?: string;
 }) {
   const [templates, setTemplates] = useState<DeviceTemplate[] | null>(null);
   const [editing, setEditing] = useState<DeviceTemplate | null | undefined>(
@@ -153,85 +155,178 @@ export function Templates({
     }
   }
   const builtin =
-    templates?.filter((template) => template.id.startsWith('builtin:')) ?? [];
+    templates?.filter(
+      (template) =>
+        template.id.startsWith('builtin:') &&
+        (!focusId || template.id === focusId),
+    ) ?? [];
   const saved =
-    templates?.filter((template) => !template.id.startsWith('builtin:')) ?? [];
+    templates?.filter(
+      (template) =>
+        !template.id.startsWith('builtin:') &&
+        (!focusId || template.id === focusId),
+    ) ?? [];
+  const focused = templates?.find((template) => template.id === focusId);
+  if (focusId && templates && !focused)
+    return (
+      <p role="alert" className="error-message">
+        The selected template is unavailable.
+      </p>
+    );
   return (
     <section aria-label="Device templates">
       <div className="configure-toolbar">
         <h2>Templates</h2>
-        <button type="button" disabled={pending} onClick={() => open(null)}>
-          Create template
-        </button>
+        {!focusId && (
+          <button type="button" disabled={pending} onClick={() => open(null)}>
+            Create template
+          </button>
+        )}
       </div>
       <p className="section-description">
         Reusable device and port layouts are available across your workspaces
         and sites.
       </p>
       <WorkflowError error={error} />
-      {notice && <p role="status">{notice}</p>}
-      {editing !== undefined && (
-        <section
-          className="workflow-inline-editor"
-          aria-label={editing ? 'Edit template' : 'Create template'}
-        >
-          <h3>{editing ? 'Edit template' : 'Create template'}</h3>
-          <form onSubmit={(event) => void save(event)}>
-            <fieldset disabled={pending} className="workflow-form">
-              <div className="configure-form-fields">
-                <Field
-                  label="Template name"
-                  required
-                  maxLength={120}
-                  autoFocus
-                  value={draft.name}
-                  onChange={(event) => update({ name: event.target.value })}
-                />
-                <DeviceTypeField
-                  value={draft.type}
-                  onChange={(type) => update({ type })}
-                />
-              </div>
-              <label className="workflow-notes">
-                Template description
-                <textarea
-                  maxLength={2000}
-                  value={draft.description}
-                  onChange={(event) =>
-                    update({ description: event.target.value })
-                  }
-                />
-              </label>
-              <PortGroupEditor
-                groups={draft.groups}
-                onChange={(groups) => update({ groups })}
-                disabled={pending}
-              />
-              <div className="workflow-actions">
-                <button type="submit" className="primary">
-                  {pending ? 'Saving…' : 'Save template'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (controls.canLeave()) {
-                      setEditing(undefined);
-                      controls.onDirtyChange(false);
-                    }
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </fieldset>
-          </form>
+      {focused && (
+        <section className="record-detail" aria-label="Template details">
+          <h2>{focused.name}</h2>
+          <dl className="record-facts">
+            <div>
+              <dt>Device type</dt>
+              <dd>
+                {focused.type === 'ap' ? 'Wireless access point' : focused.type}
+              </dd>
+            </div>
+            <div>
+              <dt>Port count</dt>
+              <dd>
+                {focused.groups.reduce(
+                  (total, group) => total + group.count,
+                  0,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Availability</dt>
+              <dd>
+                {focused.id.startsWith('builtin:')
+                  ? 'Built-in · customize a copy'
+                  : 'Reusable across workspaces and sites'}
+              </dd>
+            </div>
+          </dl>
+          {focused.description && (
+            <p className="record-description">{focused.description}</p>
+          )}
+          <h3>Port layout</h3>
+          {focused.groups.length ? (
+            <div className="workflow-table-wrap">
+              <table
+                className="workflow-table"
+                aria-label="Template port layout"
+              >
+                <thead>
+                  <tr>
+                    <th scope="col">Group</th>
+                    <th scope="col">Ports</th>
+                    <th scope="col">Connector</th>
+                    <th scope="col">Mode</th>
+                    <th scope="col">Speed</th>
+                    <th scope="col">Face</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {focused.groups.map((group, index) => (
+                    <tr key={index}>
+                      <td>{index + 1}</td>
+                      <td>
+                        {group.count} · {group.namePrefix || 'No prefix'}
+                      </td>
+                      <td>
+                        {group.kind === 'sfp_plus'
+                          ? 'SFP+'
+                          : group.kind.toUpperCase()}
+                      </td>
+                      <td>
+                        {group.mode === 'routed' ? 'Routed / WAN' : group.mode}
+                      </td>
+                      <td>{group.speed || 'Not set'}</td>
+                      <td>{group.face}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p>No predefined ports.</p>
+          )}
         </section>
       )}
+      {notice && <p role="status">{notice}</p>}
+      {editing !== undefined &&
+        (!focusId || editing === null || editing.id === focusId) && (
+          <section
+            className="workflow-inline-editor"
+            aria-label={editing ? 'Edit template' : 'Create template'}
+          >
+            <h3>{editing ? 'Edit template' : 'Create template'}</h3>
+            <form onSubmit={(event) => void save(event)}>
+              <fieldset disabled={pending} className="workflow-form">
+                <div className="configure-form-fields">
+                  <Field
+                    label="Template name"
+                    required
+                    maxLength={120}
+                    autoFocus
+                    value={draft.name}
+                    onChange={(event) => update({ name: event.target.value })}
+                  />
+                  <DeviceTypeField
+                    value={draft.type}
+                    onChange={(type) => update({ type })}
+                  />
+                </div>
+                <label className="workflow-notes">
+                  Template description
+                  <textarea
+                    maxLength={2000}
+                    value={draft.description}
+                    onChange={(event) =>
+                      update({ description: event.target.value })
+                    }
+                  />
+                </label>
+                <PortGroupEditor
+                  groups={draft.groups}
+                  onChange={(groups) => update({ groups })}
+                  disabled={pending}
+                />
+                <div className="workflow-actions">
+                  <button type="submit" className="primary">
+                    {pending ? 'Saving…' : 'Save template'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (controls.canLeave()) {
+                        setEditing(undefined);
+                        controls.onDirtyChange(false);
+                      }
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </fieldset>
+            </form>
+          </section>
+        )}
       {templates === null ? (
         <p role="status">Loading templates…</p>
       ) : (
         <>
-          <h3>Built-in templates</h3>
+          {(!focusId || builtin.length > 0) && <h3>Built-in templates</h3>}
           <ul className="configure-records">
             {builtin.map((template) => (
               <li key={template.id}>
@@ -256,8 +351,8 @@ export function Templates({
               </li>
             ))}
           </ul>
-          <h3>Saved templates</h3>
-          {!saved.length && (
+          {(!focusId || saved.length > 0) && <h3>Saved templates</h3>}
+          {!focusId && !saved.length && (
             <p className="section-description">
               No saved templates yet. Create one or customize a built-in
               template.

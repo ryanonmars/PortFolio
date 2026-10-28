@@ -2,6 +2,118 @@
   margin-top: 30px;
   min-width: 0;
 }
+
+.compact-tools,
+.compact-bulk {
+  margin: 14px 0;
+}
+.compact-tools > summary,
+.compact-bulk > summary {
+  cursor: pointer;
+  width: fit-content;
+  color: #becdc3;
+  font-size: 13px;
+}
+.compact-tools .grid-tools {
+  margin: 8px 0 18px;
+}
+.compact-port-workspace {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  min-width: 0;
+}
+.compact-port-workspace > .port-table-scroll {
+  flex: 1;
+  min-width: 0;
+}
+.port-grid table td {
+  padding: 3px 5px;
+  vertical-align: middle;
+}
+.port-grid table .compact-cell {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 7px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: #dce5df;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.port-grid table .compact-cell:hover {
+  background: #202f25;
+}
+.port-grid table .compact-cell:focus-visible {
+  outline: 2px solid #b8dec4;
+  outline-offset: -2px;
+  background: #202f25;
+}
+.port-grid tr[data-inspected='true'] {
+  background: #1c2b21;
+}
+.port-grid table td input:not([type='checkbox']),
+.port-grid table td select {
+  min-height: 30px;
+  padding: 4px 6px;
+}
+.port-grid table td select[multiple] {
+  min-height: 68px;
+}
+.port-row-menu {
+  position: relative;
+}
+.port-row-menu summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 5px;
+}
+.port-row-menu[open] {
+  min-width: 110px;
+}
+.port-row-menu button {
+  display: block;
+  margin: 4px 0;
+}
+.port-details-inspector {
+  flex: 0 0 280px;
+  max-height: 75svh;
+  overflow: auto;
+  position: sticky;
+  top: 20px;
+  padding: 16px;
+  background: #111c15;
+  border: 1px solid #354439;
+  border-radius: 6px;
+}
+.port-details-inspector h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.inspector-property {
+  margin: 13px 0;
+}
+.inspector-property > label {
+  margin-bottom: 6px;
+}
+@media (max-width: 1050px) {
+  .compact-port-workspace {
+    flex-direction: column;
+  }
+  .port-details-inspector {
+    position: static;
+    flex: auto;
+    width: 100%;
+    box-sizing: border-box;
+    max-height: none;
+  }
+  .compact-port-workspace > .port-table-scroll {
+    width: 100%;
+  }
+}
 .grid-header,
 .grid-actions,
 .grid-filter,
@@ -28,12 +140,17 @@
 }
 .grid-tools {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 12px;
   margin: 25px 0;
 }
 .grid-tool {
-  padding: 14px 0;
+  padding: 6px 0;
+}
+.grid-tool[open] {
+  flex-basis: 100%;
   border-bottom: 1px solid #354439;
 }
 .grid-tool summary {
@@ -144,7 +261,7 @@
   white-space: nowrap;
 }
 .port-table-scroll td {
-  min-width: 145px;
+  min-width: 100px;
   vertical-align: top;
   padding: 10px;
   border-bottom: 1px solid #344339;
@@ -155,8 +272,8 @@
   width: 38px;
 }
 .port-table-scroll td:last-child {
-  min-width: 100px;
-  width: 100px;
+  min-width: 38px;
+  width: 38px;
 }
 .port-table-scroll td:last-child button {
   display: block;
@@ -267,4 +384,11 @@
 }
 .grid-pagination label {
   min-width: 130px;
+}
+
+.port-grid-title {
+  font-size: 22px;
+  line-height: 1.25;
+  margin: 0 0 8px;
+  letter-spacing: -0.3px;
 }

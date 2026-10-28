@@ -1,3 +1,4 @@
+import { gridCell } from './grid-actions.js';
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
@@ -11,6 +12,8 @@ import type {
   Site,
   SiteArchive,
   Workspace,
+  Vlan,
+  SiteNavigationData,
 } from '../../packages/shared/src/index.js';
 
 test.use({ actionTimeout: 15_000 });
@@ -90,6 +93,27 @@ test('persistent context navigation, template snapshots and physical/logical con
     if (await toggle.isVisible())
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   }
+  async function expandFolder(name: string) {
+    await openSidebar(page);
+    const expand = nav.getByRole('button', {
+      name: `Expand ${name} folder`,
+      exact: true,
+    });
+    if (await expand.count()) await expand.click();
+  }
+  async function openRecord(folder: string, label: string) {
+    await expandFolder(folder);
+    const link = nav.getByRole('link', {
+      name: `Open ${folder} record ${label}`,
+      exact: true,
+    });
+    const href = await link.getAttribute('href');
+    await link.click();
+    await expect(page).toHaveURL(new URL(href!, origin).toString());
+    const toggle = page.getByRole('button', { name: 'Menu', exact: true });
+    if (await toggle.isVisible())
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  }
   await page.screenshot({
     path: testInfo.outputPath('navigation-empty-root.png'),
     fullPage: true,
@@ -150,9 +174,7 @@ test('persistent context navigation, template snapshots and physical/logical con
   ).toBeVisible();
   if (testInfo.project.name.startsWith('desktop'))
     for (const name of [...categories, 'Global Settings'])
-      await expect(
-        nav.getByRole('link', { name, exact: true }),
-      ).toBeInViewport();
+      await expect(nav.getByRole('link', { name, exact: true })).toBeVisible();
   await nav
     .getByRole('button', {
       name: `Collapse workspace ${workspaceName}`,
@@ -284,9 +306,7 @@ test('persistent context navigation, template snapshots and physical/logical con
   await page.goForward();
   await expect(current).toHaveText('Networks & Subnets');
   await sidebarNavigate(page, 'Equipment');
-  await expect(
-    page.getByRole('combobox', { name: 'Device', exact: true }),
-  ).toHaveValue('');
+  await expect(page.locator('.port-grid table')).toHaveCount(0);
   await sidebarAction(page, 'Add device');
   for (const name of [
     'Router',
@@ -315,6 +335,12 @@ test('persistent context navigation, template snapshots and physical/logical con
     .getByRole('button', { name: 'Create device', exact: true })
     .click();
   await expect(
+    page.getByRole('region', { name: 'Device details', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Configure interfaces', exact: true })
+    .click();
+  await expect(
     page.getByRole('heading', { name: 'Ports · Workflow switch', exact: true }),
   ).toBeVisible();
   const root = `/sites/${site.id}`;
@@ -330,9 +356,290 @@ test('persistent context navigation, template snapshots and physical/logical con
     'sfp_plus',
   );
   expect(switchPorts.every((port) => port.siteId === site.id)).toBe(true);
-  const description = page.getByLabel('Port 1 Description/Notes', {
+  await expandFolder('Equipment');
+  const switchRecord = nav.getByRole('link', {
+    name: 'Open Equipment record Workflow switch',
     exact: true,
   });
+  await expect(switchRecord).toBeVisible();
+  const folderUrl = page.url();
+  await nav
+    .getByRole('button', { name: 'Collapse Equipment folder', exact: true })
+    .click();
+  await expect(page).toHaveURL(folderUrl);
+  await nav
+    .getByRole('searchbox', { name: 'Search navigation', exact: true })
+    .fill('Workflow switch');
+  await expect(switchRecord).toBeVisible();
+  await nav
+    .getByRole('button', { name: 'Collapse Equipment folder', exact: true })
+    .click();
+  await expect(switchRecord).not.toBeVisible();
+  await nav
+    .getByRole('searchbox', { name: 'Search navigation', exact: true })
+    .fill('');
+  await expect(
+    nav.getByRole('button', { name: 'Expand Equipment folder', exact: true }),
+  ).toBeVisible();
+  await sidebarAction(page, 'Add VLAN');
+  await page.getByLabel('VLAN ID', { exact: true }).fill('20');
+  await page.getByLabel('VLAN name (optional)', { exact: true }).fill('Server');
+  await page.getByLabel('Use a VLAN color', { exact: true }).check();
+  await page.getByLabel('VLAN color', { exact: true }).fill('#428deb');
+  await page
+    .getByLabel('Description', { exact: true })
+    .fill('Explorer VLAN record');
+  await page.getByRole('button', { name: 'Create VLAN', exact: true }).click();
+  await expandFolder('VLANs');
+  await expect(
+    nav.getByRole('link', {
+      name: 'Open VLANs record VLAN 20 — Server',
+      exact: true,
+    }),
+  ).toBeVisible();
+  const vlan20 = (await read<{ vlans: Vlan[] }>(`${root}/vlans`)).vlans.find(
+    (item) => item.vlanId === 20,
+  )!;
+  const vlan30 = (
+    await write<{ vlan: Vlan }>(`${root}/vlans`, {
+      vlanId: 30,
+      name: 'Clients',
+      color: '#e5be36',
+    })
+  ).vlan;
+  const subnet = (
+    await write<{ subnet: { id: string } }>(`${root}/subnets`, {
+      cidr: '192.0.2.0/24',
+      name: 'Related network',
+      vlanRef: vlan20.id,
+      gatewayIp: '192.0.2.1',
+    })
+  ).subnet;
+  const rack = (
+    await write<{ rack: { id: string } }>(`${root}/racks`, {
+      name: 'Explorer rack',
+    })
+  ).rack;
+  await openRecord('Equipment', 'Workflow switch');
+  await expect(
+    page.getByRole('region', { name: 'Device details', exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('svg[data-connector="rj45"]')).toHaveCount(2);
+  await expect(
+    page.locator('svg[data-connector="rj45"] rect[data-contact="gold"]'),
+  ).toHaveCount(16);
+  await page
+    .getByRole('button', { name: 'Configure interfaces', exact: true })
+    .click();
+  const compactTable = page.getByRole('table', {
+    name: 'Workflow switch ports',
+    exact: true,
+  });
+  await expect(compactTable.locator('thead th')).toHaveCount(9);
+  await expect(
+    compactTable.locator('select,textarea,input:not([type="checkbox"])'),
+  ).toHaveCount(0);
+  expect(
+    await compactTable
+      .locator('tbody tr')
+      .first()
+      .evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeLessThan(64);
+  await page.screenshot({
+    path: testInfo.outputPath('compact-grid-clean.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await compactTable
+    .getByRole('button', { name: 'Port 1 Mode', exact: true })
+    .evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', 'Access\t20\t\nRouted/WAN\t\t');
+      element.dispatchEvent(
+        new ClipboardEvent('paste', { bubbles: true, clipboardData: data }),
+      );
+    });
+  await expect(page.locator('.port-grid').getByRole('status')).toContainText(
+    '2 pasted rows staged',
+  );
+  await page
+    .getByRole('button', { name: 'Save all changes', exact: true })
+    .click();
+  await expect(page.locator('.port-grid').getByRole('status')).toHaveText(
+    '2 ports saved.',
+  );
+  await (await gridCell(page, 1, 'Mode')).selectOption('trunk');
+  await (
+    await gridCell(page, 1, 'Native/Untagged VLAN')
+  ).selectOption(vlan20.id);
+  await (await gridCell(page, 1, 'Tagged VLANs')).selectOption([vlan30.id]);
+  await (await gridCell(page, 2, 'Mode')).selectOption('routed');
+  await (await gridCell(page, 2, 'PVID')).fill('20');
+  await (await gridCell(page, 3, 'Mode')).selectOption('trunk');
+  await (
+    await gridCell(page, 3, 'Native/Untagged VLAN')
+  ).selectOption(vlan30.id);
+  await (await gridCell(page, 3, 'Tagged VLANs')).selectOption([vlan20.id]);
+  await page
+    .getByRole('button', { name: 'Save all changes', exact: true })
+    .click();
+  await expect(page.locator('.port-grid').getByRole('status')).toHaveText(
+    '3 ports saved.',
+  );
+  await openRecord('VLANs', 'VLAN 20 — Server');
+  const vlanDetail = page.getByRole('region', {
+    name: 'VLAN details',
+    exact: true,
+  });
+  await expect(vlanDetail).toContainText('192.0.2.0/24');
+  await expect(vlanDetail).toContainText('192.0.2.1');
+  await expect(vlanDetail).toContainText('#428deb');
+  await expect(vlanDetail).toContainText('Explorer VLAN record');
+  const memberRow = page
+    .getByRole('table', { name: 'VLANs', exact: true })
+    .locator('tbody tr');
+  await expect(memberRow.locator('td').nth(3).locator('summary')).toHaveText(
+    '1 port',
+  );
+  await expect(memberRow.locator('td').nth(4).locator('summary')).toHaveText(
+    '1 port',
+  );
+  await page.screenshot({
+    path: testInfo.outputPath('vlan-detail.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: 'Edit VLAN', exact: true }).click();
+  await page
+    .getByLabel('VLAN name (optional)', { exact: true })
+    .fill('Servers');
+  await page.getByRole('button', { name: 'Save VLAN', exact: true }).click();
+  await expandFolder('VLANs');
+  await expect(
+    nav.getByRole('link', {
+      name: 'Open VLANs record VLAN 20 — Servers',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    nav.getByRole('link', {
+      name: 'Open VLANs record VLAN 20 — Server',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await openRecord('Networks & Subnets', '192.0.2.0/24 — Related network');
+  await expect(
+    page.getByRole('region', { name: 'Subnet details', exact: true }),
+  ).toContainText('192.0.2.1');
+  expect(new URL(page.url()).searchParams.get('recordId')).toBe(subnet.id);
+  await openRecord('Racks', 'Explorer rack');
+  await expect(
+    page.getByRole('region', { name: 'Rack details', exact: true }),
+  ).toContainText('Explorer rack');
+  expect(new URL(page.url()).searchParams.get('recordId')).toBe(rack.id);
+  await page.goto(
+    `${origin}/sites/${otherSite.id}?view=configure&pane=vlans&recordId=${vlan20.id}`,
+  );
+  await expect(page.getByRole('alert')).toContainText(
+    'unavailable in this site',
+  );
+  await expect(
+    page.getByRole('region', { name: 'VLAN details', exact: true }),
+  ).toHaveCount(0);
+  await openTreeSite(site, workspaceName);
+  let releaseRecords!: () => void;
+  let recordsHeld!: () => void;
+  const recordsGate = new Promise<void>((resolve) => {
+    releaseRecords = resolve;
+  });
+  const heldRecords = new Promise<void>((resolve) => {
+    recordsHeld = resolve;
+  });
+  const recordsUrl = `${origin}/api/v1/sites/${site.id}/navigation`;
+  await page.route(
+    recordsUrl,
+    async (route) => {
+      const response = await route.fetch();
+      recordsHeld();
+      await recordsGate;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await page.reload();
+  await heldRecords;
+  await openTreeSite(otherSite, otherWorkspace.name);
+  const oldResponse = page.waitForResponse(
+    (response) => response.url() === recordsUrl,
+  );
+  releaseRecords();
+  await (await oldResponse).finished();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
+  await openSidebar(page);
+  await expect(
+    nav.getByRole('link', {
+      name: 'Open Equipment record Workflow switch',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    nav.getByRole('link', {
+      name: 'Open VLANs record VLAN 20 — Servers',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await openTreeSite(site, workspaceName);
+  await openRecord('Equipment', 'Workflow switch');
+  await expect(
+    page.getByRole('region', { name: 'Device details', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('device-detail.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page
+    .getByRole('button', { name: 'Configure interfaces', exact: true })
+    .click();
+  await expect(
+    page.getByRole('heading', { name: 'Ports · Workflow switch', exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(
+    page.getByRole('region', { name: 'Device details', exact: true }),
+  ).toBeVisible();
+  await page.goForward();
+  await expect(
+    page.getByRole('heading', { name: 'Ports · Workflow switch', exact: true }),
+  ).toBeVisible();
+  const description = await gridCell(page, 1, 'Description/Notes');
+  await page.screenshot({
+    path: testInfo.outputPath('compact-row-inspector.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  // A pending cell autofocus must respect a later pointer focus in the inspector.
+  const portNameButton = await page
+    .getByRole('button', { name: 'Port 1 Port', exact: true })
+    .elementHandle();
+  const descriptionInput = await description.elementHandle();
+  await page.evaluate(
+    async ({ button, input }) => {
+      (button as HTMLButtonElement).click();
+      (input as HTMLTextAreaElement).focus();
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    },
+    { button: portNameButton, input: descriptionInput },
+  );
+  await expect(description).toBeFocused();
+  await page
+    .getByRole('textbox', { name: 'Port 1 Port', exact: true })
+    .press('Escape');
   await description.fill('Unsaved context draft');
   const dirtyUrl = page.url();
   await openSidebar(page);
@@ -376,6 +683,12 @@ test('persistent context navigation, template snapshots and physical/logical con
   await page.getByLabel('Device name', { exact: true }).fill('Snapshot device');
   await page
     .getByRole('button', { name: 'Create device', exact: true })
+    .click();
+  await expect(
+    page.getByRole('region', { name: 'Device details', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Configure interfaces', exact: true })
     .click();
   await expect(
     page.getByRole('heading', { name: 'Ports · Snapshot device', exact: true }),
@@ -441,6 +754,13 @@ test('persistent context navigation, template snapshots and physical/logical con
   await expect(
     page.getByRole('region', { name: 'Edit template', exact: true }),
   ).toHaveCount(0);
+  await expandFolder('Templates');
+  await expect(
+    nav.getByRole('link', {
+      name: `Open Templates record ${templateName}`,
+      exact: true,
+    }),
+  ).toHaveCount(0);
   expect(
     (
       await read<{ ports: Port[] }>(
@@ -490,6 +810,21 @@ test('persistent context navigation, template snapshots and physical/logical con
   await expect(
     page.getByText('Connection saved.', { exact: true }),
   ).toBeVisible();
+  const records = await read<SiteNavigationData>(`${root}/navigation`);
+  await openRecord('Templates', copyName);
+  await expect(
+    page.getByRole('region', { name: 'Template details', exact: true }),
+  ).toContainText(copyName);
+  for (const record of records.records.connections) {
+    await openRecord('Connections', record.label);
+    await expect(
+      page.getByRole('region', { name: 'Connection management', exact: true }),
+    ).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('recordId')).toBe(record.id);
+    expect(new URL(page.url()).searchParams.get('recordKind')).toBe(
+      record.kind,
+    );
+  }
   const archive = await read<SiteArchive>(`${root}/export`);
   expect(archive.devices).toHaveLength(2);
   expect(archive.ports).toHaveLength(5);
@@ -591,10 +926,11 @@ test('persistent context navigation, template snapshots and physical/logical con
     element.scrollTop = 0;
   });
   if (testInfo.project.name.startsWith('desktop')) {
-    for (const name of [...categories, 'Global Settings'])
-      await expect(nav.getByRole('link', { name, exact: true })).toBeInViewport(
-        { ratio: 1 },
-      );
+    for (const name of [...categories, 'Global Settings']) {
+      const item = nav.getByRole('link', { name, exact: true });
+      await item.scrollIntoViewIfNeeded();
+      await expect(item).toBeInViewport({ ratio: 1 });
+    }
   }
   await nav
     .getByRole('link', {

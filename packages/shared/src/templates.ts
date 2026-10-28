@@ -94,6 +94,16 @@ export type DeviceTemplate = z.infer<typeof deviceTemplateRecordSchema>;
 export const createTemplatedDeviceSchema = z
   .object({ device: createDeviceSchema, groups: templatePortGroupsSchema })
   .strict();
+export const addTemplatePortsSchema = z
+  .object({
+    rowVersion: z.number().int().min(1),
+    groups: templatePortGroupsSchema,
+  })
+  .strict()
+  .refine(
+    (input) => input.groups.some((group) => group.count > 0),
+    'Add at least one port',
+  );
 
 const group = (
   count: number,

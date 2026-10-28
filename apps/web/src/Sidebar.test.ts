@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { workspaceTree } from './Sidebar.js';
+import { workspaceTree, recordDestination } from './Sidebar.js';
 import type { NavigationData } from '../../../packages/shared/src/index.js';
 describe('workspace site tree', () => {
   const data: NavigationData = {
@@ -37,5 +37,46 @@ describe('workspace site tree', () => {
     expect(
       workspaceTree({ workspaces: [], sites: data.sites, devices: [] }),
     ).toEqual([]);
+  });
+});
+
+describe('record destinations', () => {
+  it('opens equipment detail while keeping non-device IDs scoped to their category', () => {
+    expect(
+      recordDestination('site', 'devices', { id: 'device', label: 'Switch' }),
+    ).toEqual({
+      siteId: 'site',
+      configure: true,
+      pane: 'devices',
+      deviceId: 'device',
+      deviceView: 'detail',
+    });
+    expect(
+      recordDestination('site', 'vlans', {
+        id: 'vlan',
+        label: 'VLAN 20 — Server',
+      }),
+    ).toEqual({
+      siteId: 'site',
+      configure: true,
+      pane: 'vlans',
+      recordId: 'vlan',
+    });
+  });
+  it('distinguishes physical and logical links even if their IDs coincide', () => {
+    expect(
+      recordDestination('site', 'connections', {
+        id: 'link',
+        label: 'Cable',
+        kind: 'physical',
+      }).recordKind,
+    ).toBe('physical');
+    expect(
+      recordDestination('site', 'connections', {
+        id: 'link',
+        label: 'Tunnel',
+        kind: 'logical',
+      }).recordKind,
+    ).toBe('logical');
   });
 });

@@ -1,3 +1,4 @@
+import { gridCell, openBulk } from './grid-actions.js';
 import { sidebarAction, sidebarNavigate } from './sidebar-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import type {
@@ -41,11 +42,28 @@ async function saveAll(page: Page, count: number) {
 }
 async function selectDevice(page: Page, name: string) {
   await expect(
-    page.getByRole('button', { name: 'Edit site', exact: true }),
+    page.getByRole('button', { name: 'Sign out', exact: true }),
   ).toBeEnabled();
+  if (
+    await page
+      .getByRole('heading', { name: `Ports · ${name}`, exact: true })
+      .isVisible()
+  )
+    return;
+  const inventory = page.getByRole('button', {
+    name: `Configure ${name}`,
+    exact: true,
+  });
+  if (await inventory.count()) await inventory.click();
+  else {
+    await openDetails(page, 'Device actions');
+    await page
+      .getByRole('combobox', { name: 'Device', exact: true })
+      .selectOption({ label: name });
+  }
   await page
-    .getByRole('combobox', { name: 'Device', exact: true })
-    .selectOption({ label: name });
+    .getByRole('button', { name: 'Configure interfaces', exact: true })
+    .click();
   await expect(
     page.getByRole('heading', { name: `Ports · ${name}`, exact: true }),
   ).toBeVisible();
@@ -63,6 +81,9 @@ async function createDevice(page: Page, name: string, type = 'switch') {
   await page.getByLabel('Model', { exact: true }).fill('Manual test model');
   await page
     .getByRole('button', { name: 'Create device', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Configure interfaces', exact: true })
     .click();
   await expect(
     page.getByRole('heading', { name: `Ports · ${name}`, exact: true }),
@@ -120,7 +141,7 @@ test('configures eight ports in site context with typed values, persistence and 
   const ports = async (deviceId: string) =>
     (await read<{ ports: Port[] }>(`${base}/devices/${deviceId}/ports`)).ports;
   const cell = (number: number, column: string) =>
-    page.getByLabel(`Port ${number} ${column}`, { exact: true });
+    gridCell(page, number, column);
   await sidebarNavigate(page, 'Equipment');
   await expect(
     page.getByRole('heading', { name: 'Equipment', exact: true }),
@@ -157,24 +178,25 @@ test('configures eight ports in site context with typed values, persistence and 
   const vlans = (await read<{ vlans: Vlan[] }>(`${base}/vlans`)).vlans;
   const vlan = (number: number) =>
     vlans.find((item) => item.vlanId === number)!.id;
-  await cell(1, 'Mode').selectOption('trunk');
-  await cell(1, 'Native/Untagged VLAN').selectOption(vlan(1));
-  await expect(cell(1, 'PVID')).toHaveValue('');
-  await cell(1, 'PVID').fill('1');
-  await cell(1, 'Tagged VLANs').selectOption([vlan(20), vlan(30)]);
-  await cell(1, 'Description/Notes').fill('Documented trunk uplink');
-  await cell(2, 'Mode').selectOption('access');
-  await cell(2, 'Native/Untagged VLAN').selectOption(vlan(20));
-  await expect(cell(2, 'PVID')).toHaveValue('');
-  await cell(2, 'PVID').fill('20');
-  await cell(2, 'Link state (documented)').selectOption('up');
-  await cell(3, 'Mode').selectOption('routed');
-  await cell(3, 'PVID').fill('4092');
-  await cell(3, 'Description/Notes').fill(
-    'Routed WAN without an invented access VLAN',
-  );
+  await (await cell(1, 'Mode')).selectOption('trunk');
+  await (await cell(1, 'Native/Untagged VLAN')).selectOption(vlan(1));
+  await expect(await cell(1, 'PVID')).toHaveValue('');
+  await (await cell(1, 'PVID')).fill('1');
+  await (await cell(1, 'Tagged VLANs')).selectOption([vlan(20), vlan(30)]);
+  await (await cell(1, 'Description/Notes')).fill('Documented trunk uplink');
+  await (await cell(2, 'Mode')).selectOption('access');
+  await (await cell(2, 'Native/Untagged VLAN')).selectOption(vlan(20));
+  await expect(await cell(2, 'PVID')).toHaveValue('');
+  await (await cell(2, 'PVID')).fill('20');
+  await (await cell(2, 'Link state (documented)')).selectOption('up');
+  await (await cell(3, 'Mode')).selectOption('routed');
+  await (await cell(3, 'PVID')).fill('4092');
+  await (
+    await cell(3, 'Description/Notes')
+  ).fill('Routed WAN without an invented access VLAN');
   for (const number of [4, 5, 6, 7, 8])
     await page.getByLabel(`Select Port ${number}`, { exact: true }).check();
+  await openBulk(page);
   await page
     .getByRole('combobox', { name: 'Selected rows mode', exact: true })
     .selectOption('access');
@@ -185,8 +207,8 @@ test('configures eight ports in site context with typed values, persistence and 
     .getByRole('button', { name: 'Apply to selected', exact: true })
     .click();
   for (const number of [4, 5, 6, 7, 8]) {
-    await expect(cell(number, 'PVID')).toHaveValue('');
-    await cell(number, 'PVID').fill('20');
+    await expect(await cell(number, 'PVID')).toHaveValue('');
+    await (await cell(number, 'PVID')).fill('20');
   }
   await saveAll(page, 8);
   let stored = await ports(switchDevice.id);
@@ -212,7 +234,7 @@ test('configures eight ports in site context with typed values, persistence and 
     taggedVlanRefs: [],
   });
   expect(stored.every((port) => port.rowVersion === 2)).toBe(true);
-  await cell(3, 'PVID').fill('30');
+  await (await cell(3, 'PVID')).fill('30');
   await saveAll(page, 1);
   await sidebarNavigate(page, 'VLANs');
   const memberships = page.getByRole('table', { name: 'VLANs', exact: true });
@@ -254,25 +276,26 @@ test('configures eight ports in site context with typed values, persistence and 
     },
     { times: 1 },
   );
+  await openDetails(page, 'Device actions');
   await page
     .getByRole('button', { name: 'Refresh saved records', exact: true })
     .click();
   await refreshHeld;
-  await cell(1, 'Description/Notes').fill(
-    'Draft typed while refresh is in flight',
-  );
+  await (
+    await cell(1, 'Description/Notes')
+  ).fill('Draft typed while refresh is in flight');
   const refreshDialog = page.waitForEvent('dialog');
   page.once('dialog', (dialog) => dialog.dismiss());
   releaseRefresh();
   await refreshDialog;
-  await expect(cell(1, 'Description/Notes')).toHaveValue(
+  await expect(await cell(1, 'Description/Notes')).toHaveValue(
     'Draft typed while refresh is in flight',
   );
   await expect(
     page.getByRole('button', { name: 'Save all changes', exact: true }),
   ).toBeEnabled();
-  await cell(1, 'Description/Notes').press('Escape');
-  await expect(cell(1, 'Description/Notes')).toHaveValue(
+  await (await cell(1, 'Description/Notes')).press('Escape');
+  await expect(await cell(1, 'Description/Notes')).toHaveValue(
     'Documented trunk uplink',
   );
   await expect(
@@ -280,40 +303,66 @@ test('configures eight ports in site context with typed values, persistence and 
   ).toBeDisabled();
 
   // Invalid cell details are programmatically associated and disappear when the draft is reverted.
-  await cell(1, 'PVID').fill('0');
+  await (await cell(1, 'PVID')).fill('0');
   await page
     .getByRole('button', { name: 'Save all changes', exact: true })
     .click();
-  await expect(cell(1, 'PVID')).toHaveAttribute('aria-invalid', 'true');
-  const pvidErrorId = await cell(1, 'PVID').getAttribute('aria-describedby');
+  await expect(await cell(1, 'PVID')).toHaveAttribute('aria-invalid', 'true');
+  const pvidErrorId = await (
+    await cell(1, 'PVID')
+  ).getAttribute('aria-describedby');
   expect(pvidErrorId).toBeTruthy();
   const pvidError = page.locator(`[id="${pvidErrorId}"]`);
   await expect(pvidError).toBeVisible();
   await expect(pvidError).not.toHaveText('');
-  await cell(1, 'PVID').press('Escape');
-  await expect(cell(1, 'PVID')).toHaveValue('1');
-  await expect(cell(1, 'PVID')).not.toHaveAttribute('aria-invalid', 'true');
+  await (await cell(1, 'PVID')).press('Escape');
+  await expect(await cell(1, 'PVID')).toHaveValue('1');
+  await expect(await cell(1, 'PVID')).not.toHaveAttribute(
+    'aria-invalid',
+    'true',
+  );
   await expect(pvidError).toHaveCount(0);
 
-  await cell(2, 'Speed').focus();
+  await page.getByRole('button', { name: 'Port 2 Mode', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(
+    page.getByRole('combobox', { name: 'Port 2 Mode', exact: true }),
+  ).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(cell(2, 'Mode')).toBeFocused();
-  await cell(2, 'Speed').fill('1G');
-  await cell(2, 'Speed').press('Enter');
-  await expect(page.locator('.port-grid').getByRole('status')).toHaveText(
-    '1 port saved.',
-  );
-  await cell(2, 'Speed').fill('Discard this speed');
-  await cell(2, 'Speed').press('Escape');
-  await expect(cell(2, 'Speed')).toHaveValue('1G');
+  await expect(
+    page.getByRole('button', {
+      name: 'Port 2 Native/Untagged VLAN',
+      exact: true,
+    }),
+  ).toBeFocused();
+  await (await cell(2, 'Speed')).fill('1G');
+  await (await cell(2, 'Speed')).press('Enter');
+  await expect(
+    page.getByRole('button', { name: 'Save all changes', exact: true }),
+  ).toBeEnabled();
+  await saveAll(page, 1);
+  await (await cell(2, 'Speed')).fill('Discard this speed');
+  await (await cell(2, 'Speed')).press('Escape');
+  await expect(await cell(2, 'Speed')).toHaveValue('1G');
   await expect(
     page.getByRole('button', { name: 'Save all changes', exact: true }),
   ).toBeDisabled();
-  await cell(4, 'Description/Notes').fill('Keep unsaved edit');
+  await (await cell(4, 'Description/Notes')).fill('Keep unsaved edit');
   page.once('dialog', (dialog) => dialog.dismiss());
-  await sidebarNavigate(page, 'Visual Overview');
-  await expect(cell(4, 'Description/Notes')).toHaveValue('Keep unsaved edit');
-  await cell(4, 'Description/Notes').press('Escape');
+  await sidebarNavigate(page, 'Visual Overview', true);
+  await expect(await cell(4, 'Description/Notes')).toHaveValue(
+    'Keep unsaved edit',
+  );
+  await (await cell(4, 'Description/Notes')).press('Escape');
+  const navigationMenu = page.getByRole('button', {
+    name: 'Menu',
+    exact: true,
+  });
+  if (
+    (await navigationMenu.isVisible()) &&
+    (await navigationMenu.getAttribute('aria-expanded')) === 'true'
+  )
+    await navigationMenu.click();
 
   const paste = await openDetails(page, 'Spreadsheet copy/paste');
   const header =
@@ -366,10 +415,10 @@ test('configures eight ports in site context with typed values, persistence and 
       custom.getByRole('heading', { name: 'New custom column', exact: true }),
     ).not.toBeVisible();
   }
-  await cell(2, 'Measured watts').fill('0');
-  await cell(2, 'PoE enabled').selectOption('false');
-  await cell(2, 'Review date').fill('2026-10-27');
-  await cell(2, 'Device role').selectOption('Test');
+  await (await cell(2, 'Measured watts')).fill('0');
+  await (await cell(2, 'PoE enabled')).selectOption('false');
+  await (await cell(2, 'Review date')).fill('2026-10-27');
+  await (await cell(2, 'Device role')).selectOption('Test');
   await saveAll(page, 1);
   const fields = (await read<{ fields: PortField[] }>(`${base}/port-fields`))
     .fields;
@@ -389,12 +438,14 @@ test('configures eight ports in site context with typed values, persistence and 
       values[stored[1]!.id]?.[fields.find((field) => field.key === key)!.id],
     ).toBe(value);
   await page.reload();
-  await expect(cell(2, 'Measured watts')).toHaveValue('0');
-  await expect(cell(2, 'PoE enabled')).toHaveValue('false');
-  await expect(cell(2, 'Review date')).toHaveValue('2026-10-27');
-  await expect(cell(2, 'Device role')).toHaveValue('Test');
+  await expect(await cell(2, 'Measured watts')).toHaveValue('0');
+  await expect(await cell(2, 'PoE enabled')).toHaveValue('false');
+  await expect(await cell(2, 'Review date')).toHaveValue('2026-10-27');
+  await expect(await cell(2, 'Device role')).toHaveValue('Test');
   const columns = await openDetails(page, 'Columns');
+  await columns.getByRole('checkbox', { name: 'Speed', exact: true }).check();
   await columns.getByRole('checkbox', { name: 'Speed', exact: true }).uncheck();
+  await columns.getByRole('checkbox', { name: 'PVID', exact: true }).check();
   await columns
     .getByRole('button', { name: 'Move PVID column up', exact: true })
     .click();
@@ -456,7 +507,9 @@ test('configures eight ports in site context with typed values, persistence and 
     .getByRole('button', { name: 'Clear paste', exact: true })
     .click();
   await selectDevice(page, switchName);
-  await cell(1, 'Connection peer').selectOption({
+  await (
+    await cell(1, 'Connection peer')
+  ).selectOption({
     label: `${peerName} / Uplink`,
   });
   await page
@@ -475,9 +528,9 @@ test('configures eight ports in site context with typed values, persistence and 
       .getByRole('table', { name: `${peerName} ports` })
       .getByText(`${switchName} / Port 1`, { exact: true }),
   ).toBeVisible();
-  await page
-    .getByLabel('Uplink Connection peer', { exact: true })
-    .selectOption({ label: `${switchName} / Port 2` });
+  await (
+    await gridCell(page, 'Uplink', 'Connection peer')
+  ).selectOption({ label: `${switchName} / Port 2` });
   page.once('dialog', (dialog) => dialog.dismiss());
   await page
     .getByRole('button', { name: 'Connect Uplink', exact: true })
@@ -506,10 +559,11 @@ test('configures eight ports in site context with typed values, persistence and 
       .getByText(`${peerName} / Uplink`, { exact: true }),
   ).toBeVisible();
 
+  await gridCell(page, 2, 'Connection peer');
   const cableDetails = await openDetails(page, 'Cable details');
-  await page
-    .getByLabel('Port 2 Cable notes', { exact: true })
-    .fill('Preserve this unsaved cable note');
+  await (
+    await gridCell(page, 2, 'Cable notes')
+  ).fill('Preserve this unsaved cable note');
   await expect(
     page.getByRole('searchbox', { name: 'Search ports', exact: true }),
   ).toBeDisabled();
@@ -523,10 +577,10 @@ test('configures eight ports in site context with typed values, persistence and 
   await expect(
     cableColumns.getByRole('checkbox', { name: 'Speed', exact: true }),
   ).toBeDisabled();
-  await page.getByLabel('Port 2 Cable notes', { exact: true }).press('Escape');
-  await expect(
-    page.getByLabel('Port 2 Cable notes', { exact: true }),
-  ).toHaveValue('Preserve this unsaved cable note');
+  await (await gridCell(page, 2, 'Cable notes')).press('Escape');
+  await expect(await gridCell(page, 2, 'Cable notes')).toHaveValue(
+    'Preserve this unsaved cable note',
+  );
   await expect(
     page.getByRole('searchbox', { name: 'Search ports', exact: true }),
   ).toBeDisabled();
@@ -555,18 +609,18 @@ test('configures eight ports in site context with typed values, persistence and 
     }),
   ).toBeDisabled();
   expect(await ports(switchDevice.id)).toHaveLength(8);
-  await expect(
-    page.getByLabel('Port 2 Cable notes', { exact: true }),
-  ).toHaveValue('Preserve this unsaved cable note');
+  await expect(await gridCell(page, 2, 'Cable notes')).toHaveValue(
+    'Preserve this unsaved cable note',
+  );
   await cableDetails
     .getByRole('button', { name: 'Save cable details', exact: true })
     .click();
   await expect(page.locator('.port-grid').getByRole('alert')).toContainText(
     'changed',
   );
-  await expect(
-    page.getByLabel('Port 2 Cable notes', { exact: true }),
-  ).toHaveValue('Preserve this unsaved cable note');
+  await expect(await gridCell(page, 2, 'Cable notes')).toHaveValue(
+    'Preserve this unsaved cable note',
+  );
   expect(
     (await read<{ connections: Connection[] }>(`${base}/connections`))
       .connections[0]!.notes,
@@ -575,9 +629,9 @@ test('configures eight ports in site context with typed values, persistence and 
   await page
     .getByRole('button', { name: 'Refresh ports', exact: true })
     .click();
-  await expect(
-    page.getByLabel('Port 2 Cable notes', { exact: true }),
-  ).toHaveValue('Saved by another client');
+  await expect(await gridCell(page, 2, 'Cable notes')).toHaveValue(
+    'Saved by another client',
+  );
 
   const secondContext = await browser.newContext();
   try {
@@ -585,16 +639,18 @@ test('configures eight ports in site context with typed values, persistence and 
     await secondPage.goto(`${siteUrl}?view=configure`);
     await signIn(secondPage);
     await selectDevice(secondPage, switchName);
-    await expect(
-      secondPage.getByLabel('Port 2 Measured watts', { exact: true }),
-    ).toHaveValue('0');
-    await cell(2, 'Description/Notes').fill('Preserved first-browser draft');
-    await cell(3, 'Description/Notes').fill(
-      'Second row must not be partially saved',
+    await expect(await gridCell(secondPage, 2, 'Measured watts')).toHaveValue(
+      '0',
     );
-    await secondPage
-      .getByLabel('Port 2 Description/Notes', { exact: true })
-      .fill('Saved in second browser');
+    await (
+      await cell(2, 'Description/Notes')
+    ).fill('Preserved first-browser draft');
+    await (
+      await cell(3, 'Description/Notes')
+    ).fill('Second row must not be partially saved');
+    await (
+      await gridCell(secondPage, 2, 'Description/Notes')
+    ).fill('Saved in second browser');
     await saveAll(secondPage, 1);
     await page
       .getByRole('button', { name: 'Save all changes', exact: true })
@@ -602,10 +658,10 @@ test('configures eight ports in site context with typed values, persistence and 
     await expect(page.locator('.port-grid').getByRole('alert')).toContainText(
       'staged changes are preserved',
     );
-    await expect(cell(2, 'Description/Notes')).toHaveValue(
+    await expect(await cell(2, 'Description/Notes')).toHaveValue(
       'Preserved first-browser draft',
     );
-    await expect(cell(3, 'Description/Notes')).toHaveValue(
+    await expect(await cell(3, 'Description/Notes')).toHaveValue(
       'Second row must not be partially saved',
     );
     stored = await ports(switchDevice.id);
@@ -617,7 +673,7 @@ test('configures eight ports in site context with typed values, persistence and 
     await page
       .getByRole('button', { name: 'Reload and discard drafts', exact: true })
       .click();
-    await expect(cell(2, 'Description/Notes')).toHaveValue(
+    await expect(await cell(2, 'Description/Notes')).toHaveValue(
       'Saved in second browser',
     );
   } finally {
@@ -667,7 +723,11 @@ test('configures eight ports in site context with typed values, persistence and 
         port.documentedLinkState === 'unknown',
     ),
   ).toBe(true);
-  await page.getByLabel('Port 48 PVID', { exact: true }).focus();
+  const denseColumns = await openDetails(page, 'Columns');
+  await denseColumns
+    .getByRole('button', { name: 'Reset column layout', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Port 48 Mode', exact: true }).focus();
   await page.keyboard.press('Tab');
   const lastNative = page.getByLabel('Port 48 Native/Untagged VLAN', {
     exact: true,
@@ -780,9 +840,9 @@ test('configures eight ports in site context with typed values, persistence and 
     page.locator('select[aria-label$=" Connection peer"]'),
   ).toHaveCount(1);
   expect(await boundaryTable.locator('option').count()).toBeLessThan(3000);
-  await page
-    .getByLabel('Port 1 Description/Notes', { exact: true })
-    .fill('First-page unsaved draft');
+  await (
+    await gridCell(page, 1, 'Description/Notes')
+  ).fill('First-page unsaved draft');
   for (let index = 0; index < 7; index++)
     await page
       .getByRole('button', { name: 'Next port page', exact: true })
@@ -791,9 +851,9 @@ test('configures eight ports in site context with typed values, persistence and 
     page.getByText('Showing 449–512 of 512 ports', { exact: true }),
   ).toBeVisible();
   await expect(boundaryTable.getByRole('row')).toHaveCount(65);
-  await page
-    .getByLabel('Port 512 Description/Notes', { exact: true })
-    .fill('Last-page unsaved draft');
+  await (
+    await gridCell(page, 512, 'Description/Notes')
+  ).fill('Last-page unsaved draft');
   await saveAll(page, 2);
   const boundarySaved = await ports(boundaryDevice.id);
   expect(

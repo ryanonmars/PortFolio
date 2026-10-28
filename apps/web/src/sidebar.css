@@ -181,10 +181,7 @@ button.workspace-toggle span {
   margin: 0;
   padding: 0;
 }
-.sidebar-categories li {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+.sidebar-categories > li {
   margin-bottom: 3px;
 }
 .sidebar-navigation-tree a {
@@ -200,7 +197,7 @@ button.workspace-toggle span {
     background 120ms,
     color 120ms;
 }
-.sidebar-categories a {
+.sidebar-folder-row > a {
   flex: 1;
 }
 .sidebar-navigation-tree a:hover {
@@ -358,5 +355,56 @@ button.workspace-toggle:focus-visible {
   .workspace-branch-row a,
   .workspace-sites a {
     padding-block: 10px;
+  }
+}
+
+.sidebar-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.sidebar-folder-row > a {
+  min-width: 0;
+}
+.sidebar-folder-spacer {
+  width: 22px;
+  min-width: 22px;
+}
+.sidebar-records {
+  list-style: none;
+  margin: 2px 3px 7px 11px;
+  padding: 0 0 0 9px;
+  border-left: 1px solid #2a4031;
+}
+.sidebar-records li {
+  min-width: 0;
+}
+.sidebar-records a {
+  font-size: 11px;
+  padding: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.sidebar-load-more {
+  font-size: 10px;
+  padding: 5px;
+  border: 0;
+  background: transparent;
+  color: #afcbb8;
+}
+button.workspace-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  .sidebar-folder-spacer {
+    width: 28px;
+    min-width: 28px;
+  }
+  .sidebar-records a {
+    padding-block: 10px;
+    font-size: 12px;
   }
 }

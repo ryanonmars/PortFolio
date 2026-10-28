@@ -4,10 +4,16 @@ import {
   type ConfigurePane,
   type NavigationData,
   type NavigationTarget,
+  type SiteNavigationData,
+  type SiteFolder,
+  type NavigationRecord,
 } from '../../../packages/shared/src/index.js';
 import './sidebar.css';
 export interface SidebarProps {
   data: NavigationData | null;
+  records: SiteNavigationData | null;
+  recordsLoading: boolean;
+  recordsError: string;
   loading: boolean;
   error: string;
   current: NavigationTarget;
@@ -31,6 +37,29 @@ export function workspaceTree(data: NavigationData) {
     sites: sitesByWorkspace.get(workspace.id) ?? [],
   }));
 }
+export function recordDestination(
+  siteId: string,
+  folder: SiteFolder,
+  record: NavigationRecord,
+): NavigationTarget {
+  return folder === 'devices'
+    ? {
+        siteId,
+        configure: true,
+        pane: 'devices',
+        deviceId: record.id,
+        deviceView: 'detail',
+      }
+    : {
+        siteId,
+        configure: true,
+        pane: folder,
+        recordId: record.id,
+        ...(folder === 'connections' && record.kind
+          ? { recordKind: record.kind }
+          : {}),
+      };
+}
 const categories: { label: string; pane?: ConfigurePane; add?: string }[] = [
   { label: 'Visual Overview' },
   { label: 'Equipment', pane: 'devices', add: 'Add device' },
@@ -43,6 +72,9 @@ const categories: { label: string; pane?: ConfigurePane; add?: string }[] = [
 ];
 export function Sidebar({
   data,
+  records,
+  recordsLoading,
+  recordsError,
   loading,
   error,
   current,
@@ -57,6 +89,35 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [expandedFolders, setExpandedFolders] = useState<
+    ReadonlySet<SiteFolder>
+  >(() => new Set(['devices', 'vlans', 'network']));
+  const [folderLimits, setFolderLimits] = useState<
+    Partial<Record<SiteFolder, { query: string; count: number }>>
+  >({});
+  const [searchFolders, setSearchFolders] = useState<{
+    query: string;
+    choices: Partial<Record<SiteFolder, boolean>>;
+  }>({ query: '', choices: {} });
+  function toggleFolder(folder: SiteFolder, expanded: boolean) {
+    const term = query.trim().toLowerCase();
+    if (term) {
+      setSearchFolders((previous) => ({
+        query: term,
+        choices: {
+          ...(previous.query === term ? previous.choices : {}),
+          [folder]: !expanded,
+        },
+      }));
+      return;
+    }
+    setExpandedFolders((previous) => {
+      const next = new Set(previous);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  }
   const id = useId(),
     menu = useRef<HTMLButtonElement>(null),
     panel = useRef<HTMLDivElement>(null);
@@ -178,6 +239,7 @@ export function Sidebar({
                 siteId: d.siteId,
                 configure: true,
                 deviceId: d.id,
+                deviceView: 'detail',
               } as NavigationTarget,
             })),
         ].slice(0, 30)
@@ -338,9 +400,9 @@ export function Sidebar({
           </div>
           <div className="sidebar-status" aria-live="polite">
             {loading && <p role="status">Loading navigation…</p>}
-            {(error || failure) && (
+            {(error || failure || recordsError) && (
               <div role="alert">
-                <p>{error || failure}</p>
+                <p>{error || failure || recordsError}</p>
                 <button type="button" onClick={onRefresh}>
                   Retry navigation
                 </button>
@@ -382,16 +444,125 @@ export function Sidebar({
                     ? current.configure &&
                       (current.pane ?? 'devices') === c.pane
                     : !current.configure);
+                const folder =
+                  c.pane && c.pane !== 'transfer'
+                    ? (c.pane as SiteFolder)
+                    : undefined;
+                const saved =
+                  folder && records && site && records.siteId === site.id
+                    ? records.records[folder]
+                    : [];
+                const matching = term
+                  ? saved.filter((record) =>
+                      record.label.toLowerCase().includes(term),
+                    )
+                  : saved;
+                const expanded = Boolean(
+                  site &&
+                  folder &&
+                  (term &&
+                  searchFolders.query === term &&
+                  searchFolders.choices[folder] !== undefined
+                    ? searchFolders.choices[folder]
+                    : expandedFolders.has(folder) ||
+                      Boolean(term && matching.length)),
+                );
+                const limit =
+                  folder && folderLimits[folder]?.query === term
+                    ? folderLimits[folder]!.count
+                    : 64;
+                const branchId = id + '-folder-' + (folder ?? c.label);
                 return (
-                  <li key={c.label}>
-                    {link(c.label, target, active, !site)}
-                    {c.add &&
-                      add(
-                        c.add,
-                        c.pane!,
-                        site ? { siteId: site.id } : {},
-                        !site,
+                  <li key={c.label} className="sidebar-folder">
+                    <div className="sidebar-folder-row">
+                      {folder ? (
+                        <button
+                          type="button"
+                          className="workspace-toggle"
+                          aria-label={
+                            (expanded ? 'Collapse' : 'Expand') +
+                            ' ' +
+                            c.label +
+                            ' folder'
+                          }
+                          aria-expanded={expanded}
+                          aria-controls={branchId}
+                          disabled={!site}
+                          onClick={() => toggleFolder(folder, expanded)}
+                        >
+                          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+                        </button>
+                      ) : (
+                        <span className="sidebar-folder-spacer" />
                       )}
+                      {link(c.label, target, active, !site)}
+                      {c.add &&
+                        add(
+                          c.add,
+                          c.pane!,
+                          site ? { siteId: site.id } : {},
+                          !site,
+                        )}
+                    </div>
+                    {expanded && folder && (
+                      <ul id={branchId} className="sidebar-records">
+                        {recordsLoading && !records && (
+                          <li className="sidebar-empty-branch">
+                            Loading records…
+                          </li>
+                        )}
+                        {!recordsLoading && !matching.length && (
+                          <li className="sidebar-empty-branch">
+                            {recordsError
+                              ? 'Records unavailable.'
+                              : term
+                                ? 'No matching records.'
+                                : 'No records yet.'}
+                          </li>
+                        )}
+                        {matching.slice(0, limit).map((record) => {
+                          const selected =
+                            !current.settings &&
+                            current.configure &&
+                            (current.pane ?? 'devices') === folder &&
+                            (folder === 'devices'
+                              ? current.deviceId === record.id
+                              : current.recordId === record.id &&
+                                (folder !== 'connections' ||
+                                  (current.recordKind ?? 'physical') ===
+                                    (record.kind ?? 'physical')));
+                          return (
+                            <li key={(record.kind ?? '') + record.id}>
+                              {link(
+                                record.label,
+                                recordDestination(site!.id, folder, record),
+                                selected,
+                                false,
+                                'true',
+                                'Open ' + c.label + ' record ' + record.label,
+                              )}
+                            </li>
+                          );
+                        })}
+                        {matching.length > limit && (
+                          <li>
+                            <button
+                              type="button"
+                              className="sidebar-load-more"
+                              onClick={() =>
+                                setFolderLimits((previous) => ({
+                                  ...previous,
+                                  [folder]: { query: term, count: limit + 64 },
+                                }))
+                              }
+                            >
+                              Show more {c.label.toLowerCase()} ({limit} of{' '}
+                              {matching.length})
+                            </button>
+                          </li>
+                        )}
+                      </ul>
+                    )}
                   </li>
                 );
               })}

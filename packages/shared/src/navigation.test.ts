@@ -40,6 +40,66 @@ describe('direct navigation routes', () => {
       expect(navigationTarget(url.pathname, url.search)).toEqual(target);
     }
   });
+  it('round-trips focused record routes and separates device detail from legacy port editing', () => {
+    for (const target of [
+      {
+        siteId: 'site',
+        configure: true,
+        pane: 'devices' as const,
+        deviceId: 'device',
+        deviceView: 'detail' as const,
+      },
+      {
+        siteId: 'site',
+        configure: true,
+        pane: 'devices' as const,
+        deviceId: 'device',
+        deviceView: 'ports' as const,
+        portId: 'port',
+      },
+      {
+        siteId: 'site',
+        configure: true,
+        pane: 'vlans' as const,
+        recordId: 'vlan',
+      },
+      {
+        siteId: 'site',
+        configure: true,
+        pane: 'connections' as const,
+        recordId: 'link',
+        recordKind: 'logical' as const,
+      },
+    ]) {
+      const url = new URL(navigationUrl(target), 'http://localhost');
+      expect(navigationTarget(url.pathname, url.search)).toEqual(target);
+    }
+    expect(
+      navigationTarget('/sites/site', '?view=configure&deviceId=device'),
+    ).toEqual({
+      siteId: 'site',
+      configure: true,
+      pane: 'devices',
+      deviceId: 'device',
+    });
+    expect(
+      navigationTarget(
+        '/sites/site',
+        '?view=configure&pane=transfer&recordId=stale&deviceView=detail',
+      ),
+    ).toEqual({ siteId: 'site', configure: true, pane: 'transfer' });
+    expect(
+      navigationTarget(
+        '/sites/site',
+        '?view=configure&pane=vlans&recordId=vlan&recordKind=logical&deviceId=stale',
+      ),
+    ).toEqual({
+      siteId: 'site',
+      configure: true,
+      pane: 'vlans',
+      recordId: 'vlan',
+    });
+  });
   it('allowlists sections and prevents stale device selection in other contexts', () => {
     expect(
       navigationTarget(

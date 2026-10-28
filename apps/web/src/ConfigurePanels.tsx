@@ -371,6 +371,7 @@ export function DeviceEditor({
 
 type RecordBase = { id: string; rowVersion: number };
 const noDevices: Device[] = [];
+const noSubnets: Subnet[] = [];
 function ResourcePanel<T extends RecordBase>({
   title,
   addLabel,
@@ -390,6 +391,8 @@ function ResourcePanel<T extends RecordBase>({
   activate,
   initiallyCreating = false,
   columns,
+  focusId,
+  details,
 }: {
   title: string;
   addLabel?: string;
@@ -409,6 +412,8 @@ function ResourcePanel<T extends RecordBase>({
   activate?: () => void;
   initiallyCreating?: boolean;
   columns?: { key: string; title: string; render: (record: T) => ReactNode }[];
+  focusId?: string;
+  details?: (record: T) => ReactNode;
 }) {
   const [editing, setEditing] = useState<T | null | undefined>(() =>
     initiallyCreating ? null : undefined,
@@ -466,6 +471,15 @@ function ResourcePanel<T extends RecordBase>({
       </div>
     );
   }
+  const visibleRecords = focusId
+    ? records.filter((record) => record.id === focusId)
+    : records;
+  if (focusId && !visibleRecords.length)
+    return (
+      <p role="alert" className="error-message">
+        The selected {singular} is unavailable in this site.
+      </p>
+    );
   return (
     <section>
       <div className="configure-toolbar">
@@ -477,6 +491,7 @@ function ResourcePanel<T extends RecordBase>({
         )}
       </div>
       <ErrorNotice error={error} />
+      {focusId && visibleRecords[0] && details?.(visibleRecords[0])}
       {error instanceof ApiError && error.status === 409 && (
         <button
           type="button"
@@ -507,7 +522,7 @@ function ResourcePanel<T extends RecordBase>({
               </tr>
             </thead>
             <tbody>
-              {records.map((record) => (
+              {visibleRecords.map((record) => (
                 <tr key={record.id}>
                   {columns.map((column) => (
                     <td key={column.key}>{column.render(record)}</td>
@@ -520,7 +535,7 @@ function ResourcePanel<T extends RecordBase>({
         </div>
       ) : (
         <ul className="configure-records">
-          {records.map((record) => (
+          {visibleRecords.map((record) => (
             <li key={record.id}>
               <span>{label(record)}</span>
               {recordActions(record)}
@@ -528,33 +543,37 @@ function ResourcePanel<T extends RecordBase>({
           ))}
         </ul>
       )}
-      {records.length === 0 && <p>No {title.toLowerCase()} configured yet.</p>}
-      {active && editing !== undefined && (
-        <Editor
-          key={`${editing?.id ?? 'new'}:${generation}`}
-          title={`${editing ? 'Edit' : 'Add'} ${singular}`}
-          initial={initial(editing)}
-          fields={fields}
-          build={(draft) => ({
-            ...(build(draft) as object),
-            ...(editing ? { rowVersion: editing.rowVersion } : {}),
-          })}
-          schema={editing ? updateSchema : createSchema}
-          controls={controls}
-          submitLabel={`${editing ? 'Save' : 'Create'} ${singular}`}
-          cancel={() => setEditing(undefined)}
-          reload={onChanged}
-          save={async (payload) => {
-            await api(
-              `${path}${editing ? '/' + editing.id : ''}`,
-              editing ? 'PATCH' : 'POST',
-              payload,
-            );
-            await onChanged();
-            setEditing(undefined);
-          }}
-        />
+      {visibleRecords.length === 0 && (
+        <p>No {title.toLowerCase()} configured yet.</p>
       )}
+      {active &&
+        editing !== undefined &&
+        (!focusId || editing === null || editing.id === focusId) && (
+          <Editor
+            key={`${editing?.id ?? 'new'}:${generation}`}
+            title={`${editing ? 'Edit' : 'Add'} ${singular}`}
+            initial={initial(editing)}
+            fields={fields}
+            build={(draft) => ({
+              ...(build(draft) as object),
+              ...(editing ? { rowVersion: editing.rowVersion } : {}),
+            })}
+            schema={editing ? updateSchema : createSchema}
+            controls={controls}
+            submitLabel={`${editing ? 'Save' : 'Create'} ${singular}`}
+            cancel={() => setEditing(undefined)}
+            reload={onChanged}
+            save={async (payload) => {
+              await api(
+                `${path}${editing ? '/' + editing.id : ''}`,
+                editing ? 'PATCH' : 'POST',
+                payload,
+              );
+              await onChanged();
+              setEditing(undefined);
+            }}
+          />
+        )}
     </section>
   );
 }
@@ -566,6 +585,8 @@ export function VlanSettings({
   onChanged,
   initiallyCreating = false,
   devices = noDevices,
+  subnets = noSubnets,
+  focusId,
 }: {
   siteId: string;
   vlans: Vlan[];
@@ -573,6 +594,8 @@ export function VlanSettings({
   onChanged: () => Promise<void>;
   initiallyCreating?: boolean;
   devices?: Device[];
+  subnets?: Subnet[];
+  focusId?: string;
 }) {
   const [membership, setMembership] = useState<{
     key: string;
@@ -664,6 +687,49 @@ export function VlanSettings({
         initiallyCreating={initiallyCreating}
         singular="VLAN"
         records={vlans}
+        focusId={focusId}
+        details={(vlan) => (
+          <section className="record-detail" aria-label="VLAN details">
+            <h2>
+              VLAN {vlan.vlanId}
+              {vlan.name ? ' — ' + vlan.name : ''}
+            </h2>
+            <dl className="record-facts">
+              <div>
+                <dt>ID</dt>
+                <dd>{vlan.vlanId}</dd>
+              </div>
+              <div>
+                <dt>Name</dt>
+                <dd>{vlan.name || 'Unnamed'}</dd>
+              </div>
+              <div>
+                <dt>Color</dt>
+                <dd>{vlan.color || 'Automatic'}</dd>
+              </div>
+            </dl>
+            {vlan.description && (
+              <p className="record-description">{vlan.description}</p>
+            )}
+            <h3>Related subnets</h3>
+            {subnets.some((subnet) => subnet.vlanRef === vlan.id) ? (
+              <ul>
+                {subnets
+                  .filter((subnet) => subnet.vlanRef === vlan.id)
+                  .map((subnet) => (
+                    <li key={subnet.id}>
+                      {subnet.cidr}
+                      {subnet.name ? ' · ' + subnet.name : ''}
+                      {subnet.gatewayIp ? ' · Gateway ' + subnet.gatewayIp : ''}
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p>No related subnets.</p>
+            )}
+            <h3>Port memberships</h3>
+          </section>
+        )}
         path={`/sites/${siteId}/vlans`}
         controls={controls}
         onChanged={onChanged}
@@ -759,12 +825,16 @@ export function RackSettings({
   controls,
   onChanged,
   initiallyCreating = false,
+  devices = noDevices,
+  focusId,
 }: {
   siteId: string;
   racks: Rack[];
   controls: FormControls;
   onChanged: () => Promise<void>;
   initiallyCreating?: boolean;
+  devices?: Device[];
+  focusId?: string;
 }) {
   return (
     <ResourcePanel
@@ -772,6 +842,32 @@ export function RackSettings({
       initiallyCreating={initiallyCreating}
       singular="rack"
       records={racks}
+      focusId={focusId}
+      details={(rack) => (
+        <section className="record-detail" aria-label="Rack details">
+          <h2>{rack.name}</h2>
+          {rack.description && (
+            <p className="record-description">{rack.description}</p>
+          )}
+          <p>Equipment order: {rack.orderIndex}</p>
+          <h3>Contained equipment</h3>
+          {devices.some((device) => device.rackId === rack.id) ? (
+            <ul>
+              {devices
+                .filter((device) => device.rackId === rack.id)
+                .sort((a, b) => a.orderIndex - b.orderIndex)
+                .map((device) => (
+                  <li key={device.id}>
+                    {device.displayName}
+                    {device.model ? ' · ' + device.model : ''}
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p>No equipment assigned to this rack.</p>
+          )}
+        </section>
+      )}
       path={`/sites/${siteId}/racks`}
       controls={controls}
       onChanged={onChanged}
@@ -822,6 +918,7 @@ export function NetworkSettings({
   controls,
   onChanged,
   initiallyCreating = false,
+  focusId,
 }: {
   siteId: string;
   subnets: Subnet[];
@@ -829,13 +926,44 @@ export function NetworkSettings({
   controls: FormControls;
   onChanged: () => Promise<void>;
   initiallyCreating?: boolean;
+  focusId?: string;
 }) {
-  const [selected, setSelected] = useState<Subnet | null>(null);
+  const [selected, setSelected] = useState<Subnet | null>(
+    () => subnets.find((subnet) => subnet.id === focusId) ?? null,
+  );
   const [scopes, setScopes] = useState<DhcpScope[]>([]);
-  const [owner, setOwner] = useState<'subnet' | 'scope'>('subnet');
+  const [owner, setOwner] = useState<'subnet' | 'scope'>(
+    focusId ? 'scope' : 'subnet',
+  );
   const [scopeGeneration, setScopeGeneration] = useState(0);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
+  const [loadedFocus, setLoadedFocus] = useState('');
+  useEffect(() => {
+    if (!focusId) return;
+    const focused = subnets.find((subnet) => subnet.id === focusId);
+    if (!focused) return;
+    let active = true;
+    void api<{ dhcpScopes: DhcpScope[] }>(
+      '/sites/' + siteId + '/subnets/' + focusId + '/dhcp-scopes',
+    )
+      .then((result) => {
+        if (active) {
+          setSelected(focused);
+          setScopes(result.dhcpScopes);
+          setLoadedFocus(focusId);
+        }
+      })
+      .catch((failure: unknown) => {
+        if (active) {
+          setError(failure);
+          setLoadedFocus(focusId);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [siteId, focusId, subnets]);
   async function loadScopes(subnet: Subnet) {
     if (!controls.canLeave()) return;
     // Finish the approved discard before awaiting a read, so an old form cannot
@@ -874,6 +1002,49 @@ export function NetworkSettings({
         initiallyCreating={initiallyCreating}
         singular="subnet"
         records={subnets}
+        focusId={focusId}
+        details={(subnet) => (
+          <section className="record-detail" aria-label="Subnet details">
+            <h2>
+              {subnet.cidr}
+              {subnet.name ? ' — ' + subnet.name : ''}
+            </h2>
+            <dl className="record-facts">
+              <div>
+                <dt>Gateway</dt>
+                <dd>{subnet.gatewayIp || 'Not set'}</dd>
+              </div>
+              <div>
+                <dt>DNS servers</dt>
+                <dd>
+                  {subnet.dnsServers.length
+                    ? subnet.dnsServers.join(', ')
+                    : 'Not set'}
+                </dd>
+              </div>
+              <div>
+                <dt>VLAN</dt>
+                <dd>
+                  {subnet.vlanRef
+                    ? (() => {
+                        const vlan = vlans.find(
+                          (item) => item.id === subnet.vlanRef,
+                        );
+                        return vlan
+                          ? 'VLAN ' +
+                              vlan.vlanId +
+                              (vlan.name ? ' · ' + vlan.name : '')
+                          : 'Unavailable VLAN';
+                      })()
+                    : 'None'}
+                </dd>
+              </div>
+            </dl>
+            {subnet.notes && (
+              <p className="record-description">{subnet.notes}</p>
+            )}
+          </section>
+        )}
         path={`/sites/${siteId}/subnets`}
         controls={controls}
         onChanged={onChanged}
@@ -948,64 +1119,76 @@ export function NetworkSettings({
         )}
       />
       <ErrorNotice error={error} />
-      {loading && <p role="status">Loading DHCP scopes…</p>}
-      {selected && subnets.some((subnet) => subnet.id === selected.id) && (
-        <section>
-          <h3>DHCP · {selected.cidr}</h3>
-          <ResourcePanel
-            key={`${selected.id}:${scopeGeneration}`}
-            title="DHCP scopes"
-            addLabel="Add DHCP scope"
-            singular="DHCP scope"
-            records={scopes}
-            path={`/sites/${siteId}/subnets/${selected.id}/dhcp-scopes`}
-            controls={controls}
-            onChanged={refreshScopes}
-            active={owner === 'scope'}
-            activate={() => setOwner('scope')}
-            createSchema={createDhcpScopeSchema}
-            updateSchema={updateDhcpScopeSchema}
-            label={(scope) =>
-              `${scope.name ? scope.name + ' · ' : ''}${scope.startIp} – ${scope.endIp} · ${scope.enabled ? 'Enabled' : 'Disabled'}`
-            }
-            initial={(scope) => ({
-              name: scope?.name ?? '',
-              startIp: scope?.startIp ?? '',
-              endIp: scope?.endIp ?? '',
-              enabled: scope?.enabled ?? true,
-              notes: scope?.notes ?? '',
-            })}
-            build={(draft) => ({
-              name: text(draft, 'name'),
-              startIp: text(draft, 'startIp').trim(),
-              endIp: text(draft, 'endIp').trim(),
-              enabled: Boolean(draft.enabled),
-              notes: text(draft, 'notes'),
-            })}
-            fields={(draft, set) => (
-              <>
-                {input(draft, set, 'name', 'Scope name (optional)', {
-                  maxLength: 120,
-                })}
-                {input(draft, set, 'startIp', 'Start IP', { required: true })}
-                {input(draft, set, 'endIp', 'End IP', { required: true })}
-                <Field
-                  label="Scope enabled"
-                  name="enabled"
-                  type="checkbox"
-                  checked={Boolean(draft.enabled)}
-                  onChange={(event) => set('enabled', event.target.checked)}
-                />
-                <TextArea
-                  label="Scope notes"
-                  value={text(draft, 'notes')}
-                  onChange={(value) => set('notes', value)}
-                />
-              </>
-            )}
-          />
-        </section>
+      {(loading ||
+        (focusId &&
+          loadedFocus !== focusId &&
+          subnets.some((subnet) => subnet.id === focusId))) && (
+        <p role="status">Loading DHCP scopes…</p>
       )}
+      {selected &&
+        !error &&
+        (!focusId || (selected.id === focusId && loadedFocus === focusId)) &&
+        subnets.some((subnet) => subnet.id === selected.id) && (
+          <section>
+            <h3>
+              DHCP ·{' '}
+              {subnets.find((subnet) => subnet.id === selected.id)?.cidr ??
+                selected.cidr}
+            </h3>
+            <ResourcePanel
+              key={`${selected.id}:${scopeGeneration}`}
+              title="DHCP scopes"
+              addLabel="Add DHCP scope"
+              singular="DHCP scope"
+              records={scopes}
+              path={`/sites/${siteId}/subnets/${selected.id}/dhcp-scopes`}
+              controls={controls}
+              onChanged={refreshScopes}
+              active={owner === 'scope'}
+              activate={() => setOwner('scope')}
+              createSchema={createDhcpScopeSchema}
+              updateSchema={updateDhcpScopeSchema}
+              label={(scope) =>
+                `${scope.name ? scope.name + ' · ' : ''}${scope.startIp} – ${scope.endIp} · ${scope.enabled ? 'Enabled' : 'Disabled'}`
+              }
+              initial={(scope) => ({
+                name: scope?.name ?? '',
+                startIp: scope?.startIp ?? '',
+                endIp: scope?.endIp ?? '',
+                enabled: scope?.enabled ?? true,
+                notes: scope?.notes ?? '',
+              })}
+              build={(draft) => ({
+                name: text(draft, 'name'),
+                startIp: text(draft, 'startIp').trim(),
+                endIp: text(draft, 'endIp').trim(),
+                enabled: Boolean(draft.enabled),
+                notes: text(draft, 'notes'),
+              })}
+              fields={(draft, set) => (
+                <>
+                  {input(draft, set, 'name', 'Scope name (optional)', {
+                    maxLength: 120,
+                  })}
+                  {input(draft, set, 'startIp', 'Start IP', { required: true })}
+                  {input(draft, set, 'endIp', 'End IP', { required: true })}
+                  <Field
+                    label="Scope enabled"
+                    name="enabled"
+                    type="checkbox"
+                    checked={Boolean(draft.enabled)}
+                    onChange={(event) => set('enabled', event.target.checked)}
+                  />
+                  <TextArea
+                    label="Scope notes"
+                    value={text(draft, 'notes')}
+                    onChange={(value) => set('notes', value)}
+                  />
+                </>
+              )}
+            />
+          </section>
+        )}
     </>
   );
 }

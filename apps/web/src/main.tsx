@@ -15,6 +15,7 @@ import {
   type DeletionPreview,
   type NavigationTarget,
   type NavigationData,
+  type SiteNavigationData,
   type ConfigurePane,
   navigationTarget,
   navigationUrl,
@@ -132,6 +133,64 @@ function App() {
     };
   }, [user, navigationRefresh]);
 
+  const [siteRecordState, setSiteRecordState] = useState<{
+    siteId: string;
+    refresh: number;
+    data: SiteNavigationData | null;
+    error: string;
+  } | null>(null);
+  const siteRecordRequest = useRef(0);
+  const recordSiteId = activeRoute.siteId;
+  const records =
+    user && recordSiteId && siteRecordState?.siteId === recordSiteId
+      ? siteRecordState.data
+      : null;
+  const recordsLoading = Boolean(
+    user &&
+    recordSiteId &&
+    (siteRecordState?.siteId !== recordSiteId ||
+      siteRecordState?.refresh !== navigationRefresh),
+  );
+  const recordsError =
+    user &&
+    recordSiteId &&
+    siteRecordState &&
+    siteRecordState.siteId === recordSiteId
+      ? siteRecordState.error
+      : '';
+  useEffect(() => {
+    const request = ++siteRecordRequest.current;
+    let active = true;
+    if (!user || !recordSiteId) return;
+    void api<SiteNavigationData>(
+      '/sites/' + encodeURIComponent(recordSiteId) + '/navigation',
+    )
+      .then((data) => {
+        if (active && request === siteRecordRequest.current)
+          setSiteRecordState({
+            siteId: recordSiteId,
+            refresh: navigationRefresh,
+            data,
+            error: '',
+          });
+      })
+      .catch((error: unknown) => {
+        if (active && request === siteRecordRequest.current)
+          setSiteRecordState({
+            siteId: recordSiteId,
+            refresh: navigationRefresh,
+            data: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Unable to load site records.',
+          });
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, recordSiteId, navigationRefresh]);
+
   async function load(
     locationToLoad: Location = location.current,
     onLoaded?: () => void,
@@ -183,6 +242,8 @@ function App() {
     setUser(null);
     ++sidebarRequest.current;
     setNavigationData(null);
+    ++siteRecordRequest.current;
+    setSiteRecordState(null);
     setNavigationLoaded(-1);
     setNavigationError('');
     setWorkspace(null);
@@ -360,6 +421,8 @@ function App() {
       setUser(null);
       ++sidebarRequest.current;
       setNavigationData(null);
+      ++siteRecordRequest.current;
+      setSiteRecordState(null);
       setNavigationLoaded(-1);
       setNavigationError('');
       setWorkspace(null);
@@ -479,6 +542,9 @@ function App() {
     setError('');
     setNotice('');
   }
+  const deviceFocused = Boolean(
+    site && activeRoute.configure && activeRoute.deviceId,
+  );
   const heading = site?.name ?? workspace?.name ?? 'Workspaces';
   let content: ReactNode;
   if (loading)
@@ -527,7 +593,7 @@ function App() {
             )}
           </div>
         )}
-        {(site || workspace || workspaces.length > 0) && (
+        {!deviceFocused && (site || workspace || workspaces.length > 0) && (
           <div className="page-heading page-heading-row">
             <div>
               <h1>{heading}</h1>
@@ -779,6 +845,9 @@ function App() {
         {user ? (
           <Sidebar
             data={navigationData}
+            records={records}
+            recordsLoading={recordsLoading}
+            recordsError={recordsError}
             loading={navigationLoading}
             error={navigationError}
             current={{

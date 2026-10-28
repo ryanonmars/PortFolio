@@ -21,16 +21,21 @@ export async function sidebarAction(page: Page, name: string) {
     .click();
 }
 
-export async function sidebarNavigate(page: Page, name: string) {
+export async function sidebarNavigate(
+  page: Page,
+  name: string,
+  mayDecline = false,
+) {
   await openSidebar(page);
-  await page
+  const link = page
     .getByRole('navigation', { name: 'Workspace navigation', exact: true })
-    .getByRole('link', { name, exact: true })
-    .click();
-  const menu = page.getByRole('button', { name: 'Menu', exact: true });
-  if (
-    (await menu.isVisible()) &&
-    (await menu.getAttribute('aria-expanded')) === 'true'
-  )
-    await menu.click();
+    .getByRole('link', { name, exact: true });
+  const href = await link.getAttribute('href');
+  await link.click();
+  if (!mayDecline) {
+    await expect(page).toHaveURL(new URL(href!, page.url()).toString());
+    const menu = page.getByRole('button', { name: 'Menu', exact: true });
+    if (await menu.isVisible())
+      await expect(menu).toHaveAttribute('aria-expanded', 'false');
+  }
 }

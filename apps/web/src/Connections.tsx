@@ -69,11 +69,15 @@ export function Connections({
   controls,
   initiallyCreating = false,
   onChanged,
+  focusId,
+  focusKind,
 }: {
   siteId: string;
   controls: FormControls;
   initiallyCreating?: boolean;
   onChanged?: () => Promise<void> | void;
+  focusId?: string;
+  focusKind?: Kind;
 }) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [editor, setEditor] = useState<Editor | null>(() =>
@@ -339,17 +343,35 @@ export function Connections({
       </fieldset>
     );
   }
+  const physical =
+    data?.connections.filter(
+      (connection) =>
+        !focusId || (connection.id === focusId && focusKind !== 'logical'),
+    ) ?? [];
+  const logical =
+    data?.logicalConnections.filter(
+      (connection) =>
+        !focusId || (connection.id === focusId && focusKind !== 'physical'),
+    ) ?? [];
+  if (focusId && data && !physical.length && !logical.length)
+    return (
+      <p role="alert" className="error-message">
+        The selected connection is unavailable in this site.
+      </p>
+    );
   return (
     <section aria-label="Connection management">
       <div className="configure-toolbar">
         <h2>Connections</h2>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => open('physical')}
-        >
-          Add connection
-        </button>
+        {!focusId && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => open('physical')}
+          >
+            Add connection
+          </button>
+        )}
       </div>
       <p className="section-description">
         Document physical cables and logical relationships between equipment.
@@ -378,149 +400,154 @@ export function Connections({
         <p role="status">Loading connections…</p>
       ) : (
         <>
-          {editor && (
-            <section
-              className="workflow-inline-editor"
-              aria-label={editor.record ? 'Edit connection' : 'Add connection'}
-            >
-              <h3>
-                {editor.record ? 'Edit ' : 'Add '}
-                {editor.kind} connection
-              </h3>
-              {!editor.record && (
-                <div
-                  className="workflow-kind-controls"
-                  aria-label="Connection type"
-                >
-                  <button
-                    type="button"
-                    aria-pressed={editor.kind === 'physical'}
-                    disabled={pending}
-                    onClick={() => {
-                      if (editor.kind !== 'physical') open('physical');
-                    }}
+          {editor &&
+            (!focusId || !editor.record || editor.record.id === focusId) && (
+              <section
+                className="workflow-inline-editor"
+                aria-label={
+                  editor.record ? 'Edit connection' : 'Add connection'
+                }
+              >
+                <h3>
+                  {editor.record ? 'Edit ' : 'Add '}
+                  {editor.kind} connection
+                </h3>
+                {!editor.record && (
+                  <div
+                    className="workflow-kind-controls"
+                    aria-label="Connection type"
                   >
-                    Physical cable
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={editor.kind === 'logical'}
-                    disabled={pending}
-                    onClick={() => {
-                      if (editor.kind !== 'logical') open('logical');
-                    }}
-                  >
-                    Logical relationship
-                  </button>
-                </div>
-              )}
-              {editor.kind === 'physical' && data.ports.length < 2 && (
-                <p className="section-description">
-                  Add at least two equipment ports before documenting a physical
-                  cable.
-                </p>
-              )}
-              {editor.kind === 'logical' && data.devices.length < 2 && (
-                <p className="section-description">
-                  Add at least two devices before documenting a logical
-                  relationship.
-                </p>
-              )}
-              <form onSubmit={(event) => void submit(event)}>
-                <fieldset className="workflow-form" disabled={pending}>
-                  {endpoint('A')}
-                  {endpoint('B')}
-                  {editor.kind === 'physical' ? (
-                    <Field
-                      label="Cable type"
-                      maxLength={120}
-                      value={draft.cableType}
-                      onChange={(event) =>
-                        update({ cableType: event.target.value })
-                      }
-                    />
-                  ) : (
-                    <div className="configure-form-fields">
-                      <Field
-                        label="Connection name (optional)"
-                        maxLength={120}
-                        value={draft.name}
-                        onChange={(event) =>
-                          update({ name: event.target.value })
-                        }
-                      />
-                      <Field
-                        label="Protocol (optional)"
-                        maxLength={120}
-                        value={draft.protocol}
-                        placeholder="e.g. VPN, BGP"
-                        onChange={(event) =>
-                          update({ protocol: event.target.value })
-                        }
-                      />
-                    </div>
-                  )}
-                  <label className="workflow-notes">
-                    Connection notes
-                    <textarea
-                      maxLength={2000}
-                      value={draft.notes}
-                      onChange={(event) =>
-                        update({ notes: event.target.value })
-                      }
-                    />
-                  </label>
-                  <div className="workflow-actions">
-                    <button type="submit" className="primary">
-                      {pending ? 'Saving…' : 'Save connection'}
+                    <button
+                      type="button"
+                      aria-pressed={editor.kind === 'physical'}
+                      disabled={pending}
+                      onClick={() => {
+                        if (editor.kind !== 'physical') open('physical');
+                      }}
+                    >
+                      Physical cable
                     </button>
                     <button
                       type="button"
+                      aria-pressed={editor.kind === 'logical'}
+                      disabled={pending}
                       onClick={() => {
-                        if (controls.canLeave()) {
-                          setEditor(null);
-                          controls.onDirtyChange(false);
-                        }
+                        if (editor.kind !== 'logical') open('logical');
                       }}
                     >
-                      Cancel
+                      Logical relationship
                     </button>
                   </div>
-                </fieldset>
-              </form>
-            </section>
+                )}
+                {editor.kind === 'physical' && data.ports.length < 2 && (
+                  <p className="section-description">
+                    Add at least two equipment ports before documenting a
+                    physical cable.
+                  </p>
+                )}
+                {editor.kind === 'logical' && data.devices.length < 2 && (
+                  <p className="section-description">
+                    Add at least two devices before documenting a logical
+                    relationship.
+                  </p>
+                )}
+                <form onSubmit={(event) => void submit(event)}>
+                  <fieldset className="workflow-form" disabled={pending}>
+                    {endpoint('A')}
+                    {endpoint('B')}
+                    {editor.kind === 'physical' ? (
+                      <Field
+                        label="Cable type"
+                        maxLength={120}
+                        value={draft.cableType}
+                        onChange={(event) =>
+                          update({ cableType: event.target.value })
+                        }
+                      />
+                    ) : (
+                      <div className="configure-form-fields">
+                        <Field
+                          label="Connection name (optional)"
+                          maxLength={120}
+                          value={draft.name}
+                          onChange={(event) =>
+                            update({ name: event.target.value })
+                          }
+                        />
+                        <Field
+                          label="Protocol (optional)"
+                          maxLength={120}
+                          value={draft.protocol}
+                          placeholder="e.g. VPN, BGP"
+                          onChange={(event) =>
+                            update({ protocol: event.target.value })
+                          }
+                        />
+                      </div>
+                    )}
+                    <label className="workflow-notes">
+                      Connection notes
+                      <textarea
+                        maxLength={2000}
+                        value={draft.notes}
+                        onChange={(event) =>
+                          update({ notes: event.target.value })
+                        }
+                      />
+                    </label>
+                    <div className="workflow-actions">
+                      <button type="submit" className="primary">
+                        {pending ? 'Saving…' : 'Save connection'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (controls.canLeave()) {
+                            setEditor(null);
+                            controls.onDirtyChange(false);
+                          }
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </fieldset>
+                </form>
+              </section>
+            )}
+          {!focusId && (
+            <div
+              className="workflow-kind-controls"
+              aria-label="Connection list filter"
+            >
+              {(['all', 'physical', 'logical'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-pressed={filter === kind}
+                  onClick={() => setFilter(kind)}
+                >
+                  {kind === 'all'
+                    ? 'All connections'
+                    : kind === 'physical'
+                      ? 'Physical cables'
+                      : 'Logical relationships'}
+                </button>
+              ))}
+            </div>
           )}
-          <div
-            className="workflow-kind-controls"
-            aria-label="Connection list filter"
-          >
-            {(['all', 'physical', 'logical'] as const).map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                aria-pressed={filter === kind}
-                onClick={() => setFilter(kind)}
-              >
-                {kind === 'all'
-                  ? 'All connections'
-                  : kind === 'physical'
-                    ? 'Physical cables'
-                    : 'Logical relationships'}
-              </button>
-            ))}
-          </div>
-          {filter !== 'logical' && (
+          {(focusId ? physical.length > 0 : filter !== 'logical') && (
             <section aria-labelledby="physical-connections-heading">
               <h3 id="physical-connections-heading">
                 Documented physical cables
               </h3>
-              {!data.connections.length && (
+              {!physical.length && (
                 <p className="section-description">
                   No physical cables documented.
                 </p>
               )}
               <ul className="configure-records">
-                {data.connections.map((connection) => (
+                {physical.map((connection) => (
                   <li key={connection.id}>
                     <div className="workflow-record-details">
                       <strong>
@@ -560,18 +587,18 @@ export function Connections({
               </ul>
             </section>
           )}
-          {filter !== 'physical' && (
+          {(focusId ? logical.length > 0 : filter !== 'physical') && (
             <section aria-labelledby="logical-connections-heading">
               <h3 id="logical-connections-heading">
                 Documented logical relationships
               </h3>
-              {!data.logicalConnections.length && (
+              {!logical.length && (
                 <p className="section-description">
                   No logical relationships documented.
                 </p>
               )}
               <ul className="configure-records">
-                {data.logicalConnections.map((connection) => (
+                {logical.map((connection) => (
                   <li key={connection.id}>
                     <div className="workflow-record-details">
                       <strong>
