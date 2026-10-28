@@ -7,9 +7,13 @@ import { createApp } from '../../apps/api/src/app.js';
 import { openDatabase } from '../../packages/db/src/index.js';
 import type { Site, Workspace } from '../../packages/shared/src/index.js';
 
-export async function apiFixture() {
+export async function apiFixture(enableLegacyEditor = true) {
   const dataDir = mkdtempSync(join(tmpdir(), 'portfolio-m2-'));
-  let app = await createApp({ dataDir, webRoot: join(dataDir, 'no-web') });
+  let app = await createApp({
+    dataDir,
+    webRoot: join(dataDir, 'no-web'),
+    enableLegacyEditor,
+  });
   const db = openDatabase({ dataDir });
   let cookie = '';
   let csrfToken = '';
@@ -76,7 +80,11 @@ export async function apiFixture() {
     },
     async restart() {
       await app.close();
-      app = await createApp({ dataDir, webRoot: join(dataDir, 'no-web') });
+      app = await createApp({
+        dataDir,
+        webRoot: join(dataDir, 'no-web'),
+        enableLegacyEditor,
+      });
     },
     async close() {
       db.close();

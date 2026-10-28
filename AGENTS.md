@@ -1,5 +1,13 @@
 # AGENTS.md — Repository-wide instructions
 
+## Active product direction — Board-first redesign
+
+The user's complete board-first redesign brief (2026-10-28) supersedes inherited Workspace/Site, vertical-stacking, spreadsheet-first configuration, explicit field-save and networking-validation requirements below. The product is now a freeform documentation designer: standalone Boards, optional Groups, movable/resizable Device and Network containers, device-relative front/rear port slots, direct names, independent freeform network annotations, contextual autosaving inspectors, stable-ID cables, pan/zoom/snapping and bounded undo/redo. Preserve the exact approved Connector artwork, authentication, CSRF/security, SQLite recovery and private/local deployment requirements.
+
+Production serves board APIs only. Legacy relational tables and immutable migrations remain archival recovery sources; compatibility API registration is explicitly test-only. New saves validate identity/geometry/graph integrity, not whether authored network values are conventional or have prior VLAN/subnet definitions. Read README.md and the current shared board schema before extending the editor. Local architectural notes remain in ignored docs/BOARD_REDESIGN_PLAN.md and docs/HANDOFF.md.
+
+The redesign brief explicitly authorizes a dedicated local redesign branch and tested milestone commits. Do not push, publish images/releases, or alter remotes without a new direct instruction.
+
 ## Orchestrator and delegation
 
 - **Requested orchestrator: Sol 6.1.** Use Sol 6.1 for planning, coordination, code review, integration and final acceptance **when available in the active Codex environment**. Do not pretend a different model is Sol 6.1. If no exact mapping/model is available, tell the user and ask which approved replacement to use rather than silently substituting.

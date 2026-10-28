@@ -24,88 +24,30 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'desktop',
-      testMatch: '**/organization.spec.ts',
+      name: 'desktop-board',
+      testMatch: '**/board.spec.ts',
       use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3089' },
     },
     {
-      name: 'mobile',
-      testMatch: '**/organization.spec.ts',
+      name: 'mobile-board',
+      testMatch: '**/board.spec.ts',
       use: {
         ...devices['iPhone 13'],
         defaultBrowserType: 'chromium',
         baseURL: 'http://127.0.0.1:3093',
       },
     },
-    {
-      name: 'desktop-configure',
-      testMatch: '**/configure.spec.ts',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3095' },
-    },
-    {
-      name: 'mobile-configure',
-      testMatch: '**/configure.spec.ts',
-      use: {
-        ...devices['iPhone 13'],
-        defaultBrowserType: 'chromium',
-        baseURL: 'http://127.0.0.1:3096',
-      },
-    },
-    {
-      name: 'desktop-visual',
-      testMatch: '**/visual.spec.ts',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3097' },
-    },
-    {
-      name: 'mobile-visual',
-      testMatch: '**/visual.spec.ts',
-      use: {
-        ...devices['iPhone 13'],
-        defaultBrowserType: 'chromium',
-        baseURL: 'http://127.0.0.1:3098',
-      },
-    },
-    {
-      name: 'desktop-transfer',
-      testMatch: '**/transfer.spec.ts',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3099' },
-    },
-    {
-      name: 'mobile-transfer',
-      testMatch: '**/transfer.spec.ts',
-      use: {
-        ...devices['iPhone 13'],
-        defaultBrowserType: 'chromium',
-        baseURL: 'http://127.0.0.1:3100',
-      },
-    },
-    {
-      name: 'desktop-navigation',
-      testMatch: '**/navigation.spec.ts',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3102' },
-    },
-    {
-      name: 'mobile-navigation',
-      testMatch: '**/navigation.spec.ts',
-      use: {
-        ...devices['iPhone 13'],
-        defaultBrowserType: 'chromium',
-        baseURL: 'http://127.0.0.1:3103',
-      },
-    },
   ],
-  webServer: [3089, 3093, 3095, 3096, 3097, 3098, 3099, 3100, 3102, 3103].map(
-    (port, index) => ({
-      command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
-      url: `http://127.0.0.1:${port}/healthz`,
-      reuseExistingServer: false,
-      timeout: 120_000,
-      env: {
-        HOST: '127.0.0.1',
-        PORT: String(port),
-        DATA_DIR: join(dataDir, String(port)),
-        PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
-      },
-    }),
-  ),
+  webServer: [3089, 3093].map((port, index) => ({
+    command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
+    url: `http://127.0.0.1:${port}/healthz`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      HOST: '127.0.0.1',
+      PORT: String(port),
+      DATA_DIR: join(dataDir, String(port)),
+      PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+    },
+  })),
 });

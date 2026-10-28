@@ -12,7 +12,7 @@ afterEach(async () => {
   for (const client of clients.splice(0)) await client.close();
 });
 async function fixture() {
-  const client = await apiFixture();
+  const client = await apiFixture(false);
   clients.push(client);
   return client;
 }

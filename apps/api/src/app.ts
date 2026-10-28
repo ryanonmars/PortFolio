@@ -21,6 +21,8 @@ export interface AppOptions {
   webRoot?: string;
   logger?: boolean;
   publicOrigin?: string;
+  /** Test/compatibility harness only; production serves the canonical board editor. */
+  enableLegacyEditor?: boolean;
 }
 
 export async function createApp(options: AppOptions) {
@@ -88,15 +90,17 @@ export async function createApp(options: AppOptions) {
     await app.close();
     throw error;
   });
-  registerOrganization(app, db, security.requireAuth);
   registerBoards(app, db, security.requireAuth);
-  registerNavigation(app, db, security.requireAuth);
-  registerTemplates(app, db, security.requireAuth);
-  registerLogicalConnections(app, db, security.requireAuth);
-  registerNetwork(app, db, security.requireAuth);
-  registerEquipment(app, db, security.requireAuth);
-  registerGrid(app, db, security.requireAuth);
-  registerTransfer(app, db, security.requireAuth, options.dataDir);
+  if (options.enableLegacyEditor === true) {
+    registerOrganization(app, db, security.requireAuth);
+    registerNavigation(app, db, security.requireAuth);
+    registerTemplates(app, db, security.requireAuth);
+    registerLogicalConnections(app, db, security.requireAuth);
+    registerNetwork(app, db, security.requireAuth);
+    registerEquipment(app, db, security.requireAuth);
+    registerGrid(app, db, security.requireAuth);
+    registerTransfer(app, db, security.requireAuth, options.dataDir);
+  }
   const webRoot = resolve(options.webRoot ?? 'dist/web');
   if (existsSync(resolve(webRoot, 'index.html'))) {
     await app.register(fastifyStatic, { root: webRoot, wildcard: false });

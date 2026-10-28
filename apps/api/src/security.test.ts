@@ -20,6 +20,7 @@ async function fixture(publicOrigin = 'http://127.0.0.1:3088') {
     dataDir,
     publicOrigin,
     webRoot: join(dataDir, 'no-web'),
+    enableLegacyEditor: true,
   });
   cleanup.push(() => app.close());
   let cookie = '';
@@ -74,6 +75,7 @@ async function fixture(publicOrigin = 'http://127.0.0.1:3088') {
         dataDir,
         publicOrigin,
         webRoot: join(dataDir, 'no-web'),
+        enableLegacyEditor: true,
       });
     },
   };
