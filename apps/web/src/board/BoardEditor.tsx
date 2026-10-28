@@ -239,10 +239,6 @@ export const BoardEditor = forwardRef<
         type === 'device'
           ? {
               deviceType,
-              frontColumns: 8,
-              rearColumns: 8,
-              frontRows: 2,
-              rearRows: 2,
               portSpacing: 8,
               face: 'front',
             }

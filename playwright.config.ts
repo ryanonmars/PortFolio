@@ -37,8 +37,22 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:3093',
       },
     },
+    {
+      name: 'desktop-port-layout',
+      testMatch: '**/port-layout.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3095' },
+    },
+    {
+      name: 'mobile-port-layout',
+      testMatch: '**/port-layout.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3097',
+      },
+    },
   ],
-  webServer: [3089, 3093].map((port, index) => ({
+  webServer: [3089, 3093, 3095, 3097].map((port, index) => ({
     command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
     url: `http://127.0.0.1:${port}/healthz`,
     reuseExistingServer: false,

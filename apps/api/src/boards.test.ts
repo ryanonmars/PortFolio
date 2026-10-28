@@ -86,6 +86,52 @@ async function create(
 }
 
 describe('board-centric persistence API', () => {
+  it('persists unrestricted physical slots and stable cable references across restart and resize', async () => {
+    const client = await fixture();
+    const document = sample();
+    document.elements = document.elements.map((element) => ({
+      ...element,
+      width: 20000,
+      height: 20000,
+      properties: { ...element.properties, portSpacing: 0, frontColumns: 8 },
+    }));
+    document.ports[0] = { ...document.ports[0]!, row: 200, column: 300 };
+    const created = await create(client, 'Physical layout', document);
+    expect(created.document).toEqual(document);
+    await client.restart();
+    const stored = (
+      await client.request('GET', `/api/v1/boards/${created.id}`)
+    ).json().board as BoardRecord;
+    expect(stored.document).toEqual(document);
+    const changed = structuredClone(stored.document);
+    changed.ports[0]!.row = 0;
+    changed.ports[0]!.column = 10;
+    changed.elements[0]!.width = 900;
+    changed.elements[0]!.height = 304;
+    const response = await client.request(
+      'PATCH',
+      `/api/v1/boards/${created.id}`,
+      { rowVersion: stored.rowVersion, document: changed },
+    );
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().board.document.ports).toEqual(changed.ports);
+    expect(response.json().board.document.cables).toEqual(document.cables);
+    const invalid = structuredClone(changed);
+    invalid.elements[0]!.width = 160;
+    expect(
+      (
+        await client.request('PATCH', `/api/v1/boards/${created.id}`, {
+          rowVersion: response.json().board.rowVersion,
+          document: invalid,
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (await client.request('GET', `/api/v1/boards/${created.id}`)).json().board
+        .document,
+    ).toEqual(changed);
+  });
+
   it('lazily migrates old Network entries without writes and preserves annotations through save, restart and import', async () => {
     const client = await fixture();
     const original = sample();

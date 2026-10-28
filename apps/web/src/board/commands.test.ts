@@ -4,6 +4,8 @@ import {
   emptyBoardDocument,
   networkEntrySummary,
   resolveBoardPortColor,
+  boardPortCapacity,
+  minimumBoardDeviceSize,
   type BoardElement,
 } from '../../../../packages/shared/src/board.js';
 import { addPorts, duplicateElement, removeObject } from './commands.js';
@@ -23,6 +25,107 @@ function example() {
   return { ...emptyBoardDocument(), elements: [structuredClone(device)] };
 }
 describe('board object commands', () => {
+  it('builds an eleven-port mixed horizontal face ignoring inherited eight-column metadata', () => {
+    let document = addPorts(example(), device.id, 'sfp_plus', 2, 'front');
+    document = addPorts(document, device.id, 'sfp', 1, 'front');
+    document = addPorts(document, device.id, 'rj45', 8, 'front');
+    expect(
+      document.ports.map((port) => [port.kind, port.row, port.column]),
+    ).toEqual([
+      ...['sfp_plus', 'sfp_plus', 'sfp', ...Array(8).fill('rj45')].map(
+        (kind, column) => [kind, 0, column],
+      ),
+    ]);
+    expect(boardPortCapacity(document.elements[0]!).columns).toBe(11);
+    expect(boardDocumentSchema.safeParse(document).success).toBe(true);
+    const before = structuredClone(document);
+    document = addPorts(document, device.id, 'rj45', 8, 'front');
+    expect(document.ports.slice(0, 11)).toEqual(before.ports);
+    expect(document.ports.slice(11).map((port) => port.column)).toEqual([
+      11, 12, 13, 14, 15, 16, 17, 18,
+    ]);
+    expect(document.ports.every((port) => port.row === 0)).toBe(true);
+  });
+
+  it.each([
+    [24, 12],
+    [48, 24],
+    [11, 1],
+  ])(
+    'uses only explicit row layouts for %i ports at %i per row',
+    (count, columns) => {
+      const doc = addPorts(
+        example(),
+        device.id,
+        'rj45',
+        count,
+        'front',
+        columns,
+      );
+      expect(doc.ports.map(({ row, column }) => [row, column])).toEqual(
+        Array.from({ length: count }, (_, index) => [
+          Math.floor(index / columns),
+          index % columns,
+        ]),
+      );
+      expect(boardDocumentSchema.safeParse(doc).success).toBe(true);
+    },
+  );
+
+  it('preserves intentional gaps, opposite-face slots and cables when inserting', () => {
+    let doc = addPorts(example(), device.id, 'rj45', 2, 'front');
+    doc.ports[1] = {
+      ...doc.ports[1]!,
+      column: 10,
+      name: 'Uplink',
+      pvid: 'independent',
+      customFields: { value: false },
+    };
+    doc.elements[0]!.width = minimumBoardDeviceSize(
+      doc.elements[0]!,
+      doc.ports,
+    ).width;
+    doc = addPorts(doc, device.id, 'sfp_plus', 1, 'rear');
+    doc.cables.push({
+      id: 'wire',
+      sourcePortId: doc.ports[0]!.id,
+      targetPortId: doc.ports[1]!.id,
+      name: '',
+      cableType: '',
+      sourceConnector: '',
+      targetConnector: '',
+      color: '',
+      length: '',
+      notes: '',
+    });
+    const before = structuredClone(doc);
+    const next = addPorts(doc, device.id, 'sfp', 2, 'front');
+    expect(next.ports.slice(0, 3)).toEqual(before.ports);
+    expect(next.ports.slice(3).map((port) => port.column)).toEqual([11, 12]);
+    expect(next.cables).toEqual(before.cables);
+    expect(doc).toEqual(before);
+  });
+
+  it('uses the full supported physical space instead of an artificial column cap and rejects oversized additions atomically', () => {
+    const base = example();
+    base.elements[0]!.properties.portSpacing = 0;
+    const wide = addPorts(base, device.id, 'rj45', 312, 'front');
+    expect(wide.elements[0]!.width).toBe(20000);
+    expect(wide.ports.at(-1)!.column).toBe(311);
+    expect(boardDocumentSchema.safeParse(wide).success).toBe(true);
+    const before = structuredClone(wide);
+    expect(() => addPorts(wide, device.id, 'rj45', 1, 'front')).toThrow(
+      'supported device size',
+    );
+    expect(wide).toEqual(before);
+    expect(() => addPorts(base, device.id, 'rj45', 24, 'front', 0)).toThrow(
+      'Ports per row',
+    );
+    expect(() => addPorts(base, device.id, 'rj45', 24, 'front', 1.5)).toThrow(
+      'Ports per row',
+    );
+  });
+
   it('adds front and rear ports without any network definitions and expands only as needed', () => {
     const base = example();
     const front = addPorts(base, device.id, 'rj45', 8, 'front');

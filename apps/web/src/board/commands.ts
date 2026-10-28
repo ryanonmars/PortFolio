@@ -1,6 +1,7 @@
 import {
   emptyBoardDocument,
   minimumBoardDeviceSize,
+  boardPortLayout,
   remapBoardDocument,
   type BoardDocument,
   type BoardElement,
@@ -41,6 +42,7 @@ export function addPorts(
   kind: BoardPort['kind'],
   count: number,
   face: BoardPort['face'],
+  portsPerRow?: number,
 ): BoardDocument {
   const device = document.elements.find(
     (item) => item.id === deviceId && item.type === 'device',
@@ -49,34 +51,47 @@ export function addPorts(
   const existing = document.ports.filter((port) => port.deviceId === deviceId);
   if (!Number.isInteger(count) || count < 1 || count + existing.length > 512)
     throw new Error('Choose 1–512 total ports per device');
-  const raw =
-    device.properties[face === 'front' ? 'frontColumns' : 'rearColumns'];
-  const columns =
-    typeof raw === 'number' && raw >= 1 ? Math.min(64, Math.floor(raw)) : 8;
-  const occupied = new Set(
-    existing
-      .filter((port) => port.face === face)
-      .map((port) => `${port.row}:${port.column}`),
+  if (
+    portsPerRow !== undefined &&
+    (!Number.isInteger(portsPerRow) || portsPerRow < 1 || portsPerRow > 512)
+  )
+    throw new Error('Ports per row must be a whole number from 1 to 512');
+  const facePorts = existing.filter((port) => port.face === face);
+  // A new horizontal run appends to the first row. Explicit multi-row blocks
+  // start below existing rows, preserving intentional gaps and every old slot.
+  const columns = portsPerRow ?? count;
+  const startRow =
+    portsPerRow === undefined || !facePorts.length
+      ? 0
+      : Math.max(...facePorts.map((port) => port.row)) + 1;
+  const startColumn =
+    portsPerRow === undefined
+      ? Math.max(
+          -1,
+          ...facePorts
+            .filter((port) => port.row === 0)
+            .map((port) => port.column),
+        ) + 1
+      : 0;
+  const added = Array.from({ length: count }, (_, index) =>
+    makeBoardPort(
+      deviceId,
+      kind,
+      startRow + Math.floor(index / columns),
+      startColumn + (index % columns),
+      `Port ${existing.length + index + 1}`,
+      face,
+    ),
   );
-  const added: BoardPort[] = [];
-  for (let slot = 0; added.length < count && slot < 128 * columns; slot++) {
-    const row = Math.floor(slot / columns),
-      column = slot % columns;
-    if (!occupied.has(`${row}:${column}`))
-      added.push(
-        makeBoardPort(
-          deviceId,
-          kind,
-          row,
-          column,
-          `Port ${existing.length + added.length + 1}`,
-          face,
-        ),
-      );
-  }
-  if (added.length !== count) throw new Error('No available port slots');
   const ports = [...document.ports, ...added];
   const minimum = minimumBoardDeviceSize(device, ports);
+  if (
+    minimum.width > boardPortLayout.maxDeviceSize ||
+    minimum.height > boardPortLayout.maxDeviceSize
+  )
+    throw new Error(
+      'This layout exceeds the supported device size. Choose fewer ports per row or a different placement.',
+    );
   return {
     ...document,
     ports,

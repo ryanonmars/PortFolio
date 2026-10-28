@@ -1,16 +1,18 @@
 import {
   minimumBoardDeviceSize,
+  boardPortLayout,
+  boardPortGap,
   type BoardDocument,
   BoardElement,
   BoardPort,
   BoardViewport,
 } from '../../../../packages/shared/src/board.js';
 
-export const PORT_WIDTH = 64;
-export const PORT_HEIGHT = 92;
+export const PORT_WIDTH = boardPortLayout.width;
+export const PORT_HEIGHT = boardPortLayout.height;
 export const PORT_GAP = 8;
-export const DEVICE_PADDING = 16;
-export const DEVICE_HEADER = 80;
+export const DEVICE_PADDING = boardPortLayout.padding;
+export const DEVICE_HEADER = boardPortLayout.header;
 export const GRID_SIZE = 8;
 export type Point = { x: number; y: number };
 export type Rect = Point & { width: number; height: number };
@@ -20,11 +22,7 @@ export const clamp = (value: number, min: number, max: number) =>
 export function activeFace(element: BoardElement): BoardPort['face'] {
   return element.properties.face === 'rear' ? 'rear' : 'front';
 }
-export function portGap(element: BoardElement): number {
-  return typeof element.properties.portSpacing === 'number'
-    ? clamp(element.properties.portSpacing, 0, 40)
-    : PORT_GAP;
-}
+export const portGap = boardPortGap;
 export function portRect(
   element: BoardElement,
   port: Pick<BoardPort, 'row' | 'column'>,

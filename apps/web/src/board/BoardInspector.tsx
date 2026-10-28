@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   minimumBoardDeviceSize,
+  boardPortCapacity,
+  boardPortLayout,
   networkDisplayFields,
   normalizeNetworkEntry,
   type BoardDocument,
@@ -34,6 +36,7 @@ export function BoardInspector({
 }: Props) {
   const [error, setError] = useState('');
   const [count, setCount] = useState('1');
+  const [portsPerRow, setPortsPerRow] = useState('');
   const element = document.elements.find((item) => item.id === selection.id);
   const port = document.ports.find((item) => item.id === selection.id);
   const cable = document.cables.find((item) => item.id === selection.id);
@@ -42,6 +45,13 @@ export function BoardInspector({
     const next = { ...element, ...changes };
     if (next.type === 'device') {
       const minimum = minimumBoardDeviceSize(next, document.ports);
+      if (
+        minimum.width > boardPortLayout.maxDeviceSize ||
+        minimum.height > boardPortLayout.maxDeviceSize
+      ) {
+        setError('This spacing exceeds the supported device size.');
+        return;
+      }
       next.width = Math.max(next.width, minimum.width);
       next.height = Math.max(next.height, minimum.height);
     }
@@ -76,23 +86,28 @@ export function BoardInspector({
       )
     ) {
       if (changes.face) {
-        const columns = Number(
-          document.elements.find((item) => item.id === port.deviceId)
-            ?.properties[
-            changes.face === 'front' ? 'frontColumns' : 'rearColumns'
-          ] ?? 8,
-        );
+        const owner = document.elements.find(
+          (item) => item.id === port.deviceId,
+        )!;
+        const capacity = boardPortCapacity(owner);
         let slot = 0;
         while (
+          slot < capacity.rows * capacity.columns &&
           document.ports.some(
             (item) =>
+              item.id !== port.id &&
               item.deviceId === port.deviceId &&
               item.face === next.face &&
-              item.row === Math.floor(slot / columns) &&
-              item.column === slot % columns,
+              item.row === Math.floor(slot / capacity.columns) &&
+              item.column === slot % capacity.columns,
           )
         )
           slot++;
+        if (slot >= capacity.rows * capacity.columns) {
+          setError('Resize the device to make room on that face.');
+          return;
+        }
+        const columns = capacity.columns;
         next.row = Math.floor(slot / columns);
         next.column = slot % columns;
       } else {
@@ -104,6 +119,11 @@ export function BoardInspector({
       item.id === port.id ? next : item,
     );
     const owner = document.elements.find((item) => item.id === port.deviceId)!;
+    const capacity = boardPortCapacity(owner);
+    if (next.row >= capacity.rows || next.column >= capacity.columns) {
+      setError('Resize the device to make room for that slot.');
+      return;
+    }
     const minimum = minimumBoardDeviceSize(owner, ports);
     onChange(
       {
@@ -249,6 +269,9 @@ export function BoardInspector({
                                 element.properties.face === 'rear'
                                   ? 'rear'
                                   : 'front',
+                                portsPerRow.trim()
+                                  ? Number(portsPerRow)
+                                  : undefined,
                               ),
                               'Add ports',
                             );
@@ -267,31 +290,15 @@ export function BoardInspector({
                     ))}
                   </div>
                   {input('Port quantity', count, setCount, 'number')}
+                  {input(
+                    'Ports per row',
+                    portsPerRow,
+                    setPortsPerRow,
+                    'number',
+                  )}
                 </details>
                 <details>
                   <summary>Physical layout</summary>
-                  {['front', 'rear'].map((face) => (
-                    <div key={face}>
-                      {input(
-                        `${face === 'front' ? 'Front' : 'Rear'} columns`,
-                        Number(element.properties[face + 'Columns'] ?? 8),
-                        (value) => {
-                          if (Number(value) >= 1 && Number(value) <= 64)
-                            property(face + 'Columns', Number(value));
-                        },
-                        'number',
-                      )}
-                      {input(
-                        `${face === 'front' ? 'Front' : 'Rear'} rows`,
-                        Number(element.properties[face + 'Rows'] ?? 2),
-                        (value) => {
-                          if (Number(value) >= 1 && Number(value) <= 128)
-                            property(face + 'Rows', Number(value));
-                        },
-                        'number',
-                      )}
-                    </div>
-                  ))}
                   {input(
                     'Port spacing',
                     Number(element.properties.portSpacing ?? 8),
@@ -610,7 +617,12 @@ export function BoardInspector({
                   if (
                     Number.isInteger(Number(value)) &&
                     Number(value) >= 1 &&
-                    Number(value) <= 128
+                    Number(value) <=
+                      boardPortCapacity(
+                        document.elements.find(
+                          (item) => item.id === port.deviceId,
+                        )!,
+                      ).rows
                   )
                     changePort({ row: Number(value) - 1 }, 'row');
                 },
@@ -623,7 +635,12 @@ export function BoardInspector({
                   if (
                     Number.isInteger(Number(value)) &&
                     Number(value) >= 1 &&
-                    Number(value) <= 128
+                    Number(value) <=
+                      boardPortCapacity(
+                        document.elements.find(
+                          (item) => item.id === port.deviceId,
+                        )!,
+                      ).columns
                   )
                     changePort({ column: Number(value) - 1 }, 'column');
                 },

@@ -40,13 +40,61 @@ export const boardElementSchema = z
   })
   .strict();
 export type BoardElement = z.infer<typeof boardElementSchema>;
+// Physical canvas units, shared by rendering, insertion and integrity checks.
+export const boardPortLayout = {
+  width: 64,
+  height: 92,
+  padding: 16,
+  header: 80,
+  maxDeviceSize: 20000,
+} as const;
+export const maxBoardPortColumn =
+  Math.floor(
+    (boardPortLayout.maxDeviceSize - 2 * boardPortLayout.padding) /
+      boardPortLayout.width,
+  ) - 1;
+export const maxBoardPortRow =
+  Math.floor(
+    (boardPortLayout.maxDeviceSize -
+      boardPortLayout.header -
+      2 * boardPortLayout.padding) /
+      boardPortLayout.height,
+  ) - 1;
+export function boardPortGap(element: BoardElement): number {
+  const raw = element.properties.portSpacing;
+  return typeof raw === 'number' && Number.isFinite(raw)
+    ? Math.max(0, Math.min(40, raw))
+    : 8;
+}
+export function boardPortCapacity(element: BoardElement) {
+  const gap = boardPortGap(element);
+  return {
+    columns: Math.max(
+      0,
+      Math.floor(
+        (element.width - 2 * boardPortLayout.padding + gap) /
+          (boardPortLayout.width + gap),
+      ),
+    ),
+    rows: Math.max(
+      0,
+      Math.floor(
+        (element.height -
+          boardPortLayout.header -
+          2 * boardPortLayout.padding +
+          gap) /
+          (boardPortLayout.height + gap),
+      ),
+    ),
+  };
+}
 export const boardPortSchema = z
   .object({
     id,
     deviceId: id,
     face: z.enum(['front', 'rear']),
-    row: z.number().int().min(0).max(127),
-    column: z.number().int().min(0).max(127),
+    row: z.number().int().min(0).max(maxBoardPortRow),
+    column: z.number().int().min(0).max(maxBoardPortColumn),
     name: z.string().max(240),
     kind: z.enum(['rj45', 'sfp', 'sfp_plus', 'qsfp', 'other']),
     color,
@@ -84,16 +132,23 @@ export function minimumBoardDeviceSize(
 ) {
   const items = ports.filter((port) => port.deviceId === element.id);
   if (!items.length) return { width: 160, height: 120 };
-  const raw = element.properties.portSpacing;
-  const gap =
-    typeof raw === 'number' && Number.isFinite(raw)
-      ? Math.max(0, Math.min(40, raw))
-      : 8;
+  const gap = boardPortGap(element);
   const column = Math.max(...items.map((port) => port.column));
   const row = Math.max(...items.map((port) => port.row));
   return {
-    width: Math.max(160, 32 + (column + 1) * 64 + column * gap),
-    height: Math.max(120, 112 + (row + 1) * 92 + row * gap),
+    width: Math.max(
+      160,
+      2 * boardPortLayout.padding +
+        (column + 1) * boardPortLayout.width +
+        column * gap,
+    ),
+    height: Math.max(
+      120,
+      boardPortLayout.header +
+        2 * boardPortLayout.padding +
+        (row + 1) * boardPortLayout.height +
+        row * gap,
+    ),
   };
 }
 export const boardDocumentSchema = z

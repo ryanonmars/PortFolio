@@ -10,6 +10,9 @@ import {
 } from 'react';
 import {
   resolveBoardPortColor,
+  boardPortCapacity,
+  maxBoardPortColumn,
+  maxBoardPortRow,
   networkEntrySummary,
   type BoardDocument,
   BoardElement,
@@ -584,9 +587,13 @@ export function BoardCanvas(props: BoardCanvasProps) {
     const column = clamp(
       Math.round(port.column + dx / (PORT_WIDTH + gap)),
       0,
-      127,
+      maxBoardPortColumn,
     );
-    const row = clamp(Math.round(port.row + dy / (PORT_HEIGHT + gap)), 0, 127);
+    const row = clamp(
+      Math.round(port.row + dy / (PORT_HEIGHT + gap)),
+      0,
+      maxBoardPortRow,
+    );
     const occupied = active.base.ports.some(
       (item) =>
         item.id !== port.id &&
@@ -779,7 +786,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
             (PORT_WIDTH + gap),
         ),
         0,
-        127,
+        maxBoardPortColumn,
       );
       const row = clamp(
         Math.round(
@@ -791,8 +798,11 @@ export function BoardCanvas(props: BoardCanvasProps) {
             (PORT_HEIGHT + gap),
         ),
         0,
-        127,
+        maxBoardPortRow,
       );
+      const capacity = boardPortCapacity(element);
+      if (row >= capacity.rows || column >= capacity.columns)
+        throw new Error('Resize the device to make room for that slot.');
       if (
         document.ports.some(
           (port) =>
@@ -1220,7 +1230,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                                         ? 1
                                         : 0),
                                   0,
-                                  127,
+                                  maxBoardPortRow,
                                 );
                                 const column = clamp(
                                   port.column +
@@ -1230,7 +1240,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                                         ? 1
                                         : 0),
                                   0,
-                                  127,
+                                  maxBoardPortColumn,
                                 );
                                 const next = portRect(element, { row, column });
                                 if (
@@ -1354,7 +1364,11 @@ export function BoardCanvas(props: BoardCanvasProps) {
                                       (horizontal ? item.row : item.column) -
                                         other,
                                     ) *
-                                      128 +
+                                      (Math.max(
+                                        maxBoardPortColumn,
+                                        maxBoardPortRow,
+                                      ) +
+                                        1) +
                                     Math.abs(
                                       (horizontal ? item.column : item.row) -
                                         current,

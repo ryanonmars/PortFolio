@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   emptyBoardDocument,
+  boardPortCapacity,
   type BoardElement,
   type BoardPort,
 } from '../../../../packages/shared/src/board.js';
@@ -48,6 +49,42 @@ const port: BoardPort = {
   customFields: {},
 };
 describe('board canvas geometry', () => {
+  it('reveals exact dimension-derived capacity while keeping every slot and cable endpoint fixed', () => {
+    const eleven = { ...device, width: 816, height: 204 };
+    expect(boardPortCapacity(eleven)).toEqual({ columns: 11, rows: 1 });
+    expect(boardPortCapacity({ ...eleven, width: 815, height: 203 })).toEqual({
+      columns: 10,
+      rows: 0,
+    });
+    const enlarged = { ...eleven, width: 1800, height: 600 };
+    expect(boardPortCapacity(enlarged)).toEqual({ columns: 24, rows: 4 });
+    const p = { ...port, column: 10 };
+    expect(portRect(enlarged, p)).toEqual(portRect(eleven, p));
+    expect(
+      getPortPoint(
+        { ...emptyBoardDocument(), elements: [enlarged], ports: [p] },
+        p.id,
+      ),
+    ).toEqual(
+      getPortPoint(
+        { ...emptyBoardDocument(), elements: [eleven], ports: [p] },
+        p.id,
+      ),
+    );
+    const minimum = minimumDeviceSize(enlarged, [
+      p,
+      { ...p, id: 'rear', face: 'rear', row: 1, column: 23 },
+    ]);
+    const shrunk = resizeRect(
+      enlarged,
+      'se',
+      { x: -10000, y: -10000 },
+      minimum,
+      true,
+    );
+    expect(shrunk).toMatchObject({ width: 1752, height: 304 });
+    expect(p.column).toBe(10);
+  });
   it('keeps cable pointer targets outside equipment controls while preserving endpoint identity', () => {
     const a = { x: 50, y: 50 },
       b = { x: 400, y: 50 };
