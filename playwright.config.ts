@@ -65,17 +65,33 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:3101',
       },
     },
-  ],
-  webServer: [3089, 3093, 3095, 3097, 3099, 3101].map((port, index) => ({
-    command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
-    url: `http://127.0.0.1:${port}/healthz`,
-    reuseExistingServer: false,
-    timeout: 120_000,
-    env: {
-      HOST: '127.0.0.1',
-      PORT: String(port),
-      DATA_DIR: join(dataDir, String(port)),
-      PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+    {
+      name: 'desktop-port-inspector',
+      testMatch: '**/port-inspector.spec.ts',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3103' },
     },
-  })),
+    {
+      name: 'mobile-port-inspector',
+      testMatch: '**/port-inspector.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3107',
+      },
+    },
+  ],
+  webServer: [3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107].map(
+    (port, index) => ({
+      command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
+      url: `http://127.0.0.1:${port}/healthz`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        DATA_DIR: join(dataDir, String(port)),
+        PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+      },
+    }),
+  ),
 });

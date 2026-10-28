@@ -1,0 +1,78 @@
+.board-inspector-field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 15px;
+}
+.board-inspector-field .board-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.board-inspector .board-field-label label {
+  display: block;
+  margin: 0;
+}
+.board-studio .board-field-help-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #94ad9c;
+  font-size: 11px;
+  line-height: 1;
+  cursor: help;
+}
+.board-field-help-trigger span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-family: Georgia, serif;
+  font-size: 10px;
+  font-weight: 600;
+}
+.board-studio .board-field-help-trigger:hover,
+.board-studio .board-field-help-trigger[aria-expanded='true'] {
+  color: #d4e5d9;
+  background: #284031;
+}
+.board-field-help-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #486452;
+  border-radius: 7px;
+  background: #132019;
+  color: #d3e1d7;
+  box-shadow: 0 5px 20px #0004;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-line;
+}
+.board-field-help-popover p {
+  margin: 0 0 8px;
+}
+.board-field-help-popover p:last-child {
+  margin-bottom: 0;
+}
+.board-field-help-popover ul {
+  margin: 0 0 8px;
+  padding-left: 17px;
+}

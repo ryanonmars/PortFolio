@@ -585,11 +585,15 @@ test('canvas equipment, flexible ports, network data and cables autosave and sur
     )!.name,
   ).toBe('Uplink');
   await portButton(firstPort.id).click();
-  await field(page, 'Port role', 'Provider handoff / routed WAN');
-  await field(page, 'Native/untagged VLAN', '20');
+  await field(page, 'Port Purpose', 'Provider handoff / routed WAN');
+  await field(page, 'Native VLAN', '20');
   await field(page, 'Tagged VLANs', '30, Guest voice');
   await field(page, 'PVID', '99');
-  await field(page, 'Address information', '192.0.2.2/30; 2001:db8:42::2/64');
+  await field(
+    page,
+    'Interface IP / Address',
+    '192.0.2.2/30; 2001:db8:42::2/64',
+  );
   const custom = await details(inspector(page), 'Custom fields');
   await custom
     .getByRole('button', { name: 'Add custom field', exact: true })
@@ -943,11 +947,11 @@ test('board archive roundtrip, image export and rejected writes preserve canonic
   });
   const sourcePorts = (await readBoard(page, id)).document.ports;
   await page.locator(`button[data-port-id="${sourcePorts[0]!.id}"]`).click();
-  await field(page, 'Native/untagged VLAN', '20');
+  await field(page, 'Native VLAN', '20');
   await field(page, 'PVID', '99');
   await field(
     page,
-    'Address information',
+    'Interface IP / Address',
     '198.51.100.2/24; archive.example.test',
   );
   await customValue(page, 'Zero', '0');

@@ -26,7 +26,7 @@ export function makeBoardPort(
     color: '',
     role: '',
     speed: '',
-    linkState: '',
+    linkState: 'unknown',
     nativeVlan: '',
     taggedVlans: [],
     pvid: '',

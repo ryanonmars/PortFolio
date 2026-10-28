@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useId, type ReactNode } from 'react';
 import {
   minimumBoardDeviceSize,
   boardPortCapacity,
@@ -12,6 +12,14 @@ import {
 } from '../../../../packages/shared/src/board.js';
 import type { BoardSelection } from './BoardCanvas.js';
 import { addPorts } from './commands.js';
+import { FieldHelp } from './FieldHelp.js';
+import {
+  knownLinkStatus,
+  portHelp,
+  purposeSuggestions,
+  speedSuggestions,
+  type PortHelpLabel,
+} from './port-fields.js';
 
 type Props = {
   document: BoardDocument;
@@ -35,6 +43,7 @@ export function BoardInspector({
   onDuplicate,
 }: Props) {
   const [error, setError] = useState('');
+  const fieldPrefix = useId();
   const [count, setCount] = useState('1');
   const [portsPerRow, setPortsPerRow] = useState('');
   const element = document.elements.find((item) => item.id === selection.id);
@@ -160,6 +169,50 @@ export function BoardInspector({
         />
       </label>
     );
+  }
+  function helpedField(
+    label: PortHelpLabel,
+    render: (id: string, helpId: string) => ReactNode,
+  ) {
+    const id = `${fieldPrefix}-${label.replace(/[^a-z0-9]/gi, '-')}`;
+    const helpId = `${id}-help`;
+    return (
+      <div className="board-inspector-field">
+        <div className="board-field-label">
+          <label htmlFor={id}>{label}</label>
+          <FieldHelp id={helpId} label={label}>
+            {portHelp[label]}
+          </FieldHelp>
+        </div>
+        {render(id, helpId)}
+      </div>
+    );
+  }
+  function portInput(
+    label: PortHelpLabel,
+    value: string,
+    update: (value: string) => void,
+    suggestions?: string[],
+  ) {
+    return helpedField(label, (id, helpId) => (
+      <>
+        <input
+          id={id}
+          aria-label={label}
+          aria-describedby={helpId}
+          value={value}
+          list={suggestions ? `${id}-suggestions` : undefined}
+          onChange={(event) => update(event.target.value)}
+        />
+        {suggestions && (
+          <datalist id={`${id}-suggestions`}>
+            {suggestions.map((suggestion) => (
+              <option key={suggestion} value={suggestion} />
+            ))}
+          </datalist>
+        )}
+      </>
+    ));
   }
   function notes(
     label: string,
@@ -544,21 +597,44 @@ export function BoardInspector({
                 ))}
               </select>
             </label>
-            {input('Port role', port.role, (role) =>
-              changePort({ role }, 'role'),
+            {portInput(
+              'Port Purpose',
+              port.role,
+              (role) => changePort({ role }, 'role'),
+              purposeSuggestions,
             )}
-            {input('Speed', port.speed, (speed) =>
-              changePort({ speed }, 'speed'),
+            {portInput(
+              'Speed',
+              port.speed,
+              (speed) => changePort({ speed }, 'speed'),
+              speedSuggestions,
             )}
-            {input('Documented link state', port.linkState, (linkState) =>
-              changePort({ linkState }, 'linkState'),
-            )}
-            {input('Native/untagged VLAN', port.nativeVlan, (nativeVlan) =>
+            {helpedField('Link Status', (id, helpId) => (
+              <select
+                id={id}
+                aria-label="Link Status"
+                aria-describedby={helpId}
+                value={knownLinkStatus(port.linkState) ?? '__saved__'}
+                onChange={(event) => {
+                  if (['unknown', 'up', 'down'].includes(event.target.value))
+                    changePort({ linkState: event.target.value }, 'linkState');
+                }}
+              >
+                <option value="unknown">Unknown</option>
+                <option value="up">Up</option>
+                <option value="down">Down</option>
+                {knownLinkStatus(port.linkState) === null && (
+                  <option value="__saved__">Saved: {port.linkState}</option>
+                )}
+              </select>
+            ))}
+            {portInput('Native VLAN', port.nativeVlan, (nativeVlan) =>
               changePort({ nativeVlan }, 'nativeVlan'),
             )}
-            <label>
-              Tagged VLANs
+            {helpedField('Tagged VLANs', (id, helpId) => (
               <DraftText
+                id={id}
+                describedBy={helpId}
                 label="Tagged VLANs"
                 value={port.taggedVlans.join(', ')}
                 onChange={(value) =>
@@ -573,13 +649,15 @@ export function BoardInspector({
                   )
                 }
               />
-            </label>
-            {input('PVID', port.pvid, (pvid) => changePort({ pvid }, 'pvid'))}
-            {input('Address information', port.address, (address) =>
+            ))}
+            {portInput('PVID', port.pvid, (pvid) =>
+              changePort({ pvid }, 'pvid'),
+            )}
+            {portInput('Interface IP / Address', port.address, (address) =>
               changePort({ address }, 'address'),
             )}
-            {input(
-              'External destination',
+            {portInput(
+              'External Connection',
               port.externalDestination,
               (externalDestination) =>
                 changePort({ externalDestination }, 'externalDestination'),
@@ -838,10 +916,14 @@ function CustomProperties({
 }
 
 function DraftText({
+  id,
+  describedBy,
   label,
   value,
   onChange,
 }: {
+  id?: string;
+  describedBy?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -853,6 +935,8 @@ function DraftText({
   }, [value]);
   return (
     <input
+      id={id}
+      aria-describedby={describedBy}
       aria-label={label}
       value={draft}
       onFocus={() => {

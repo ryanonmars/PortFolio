@@ -141,7 +141,7 @@ test('physical port slots retain an eleven-port mixed face and explicit two-row 
   await inspector(page).getByLabel('Port name', { exact: true }).fill('WAN');
   await inspector(page).getByLabel('PVID', { exact: true }).fill('99');
   await inspector(page)
-    .getByLabel('Port role', { exact: true })
+    .getByLabel('Port Purpose', { exact: true })
     .fill('Custom uplink');
   await saved(page);
   await closeInspector(page);
