@@ -9,9 +9,7 @@ import {
   networkPresentationLines,
 } from './network-presentation.js';
 import { Connector } from '../visual/Connector.js';
-import { activeFace, portRect } from './geometry.js';
-import { routeBoardCable } from './cable-routing.js';
-import { cableProtectedRegions, cablePaintBounds } from './cable-rendering.js';
+import { activeFace, cableCurve, getPortPoint, portRect } from './geometry.js';
 const escape = (value: unknown) =>
   String(value ?? '').replace(
     /[&<>"']/g,
@@ -25,19 +23,16 @@ const escape = (value: unknown) =>
       })[character]!,
   );
 export function boardImageSvg(document: BoardDocument): string {
-  const routes = document.showCables
-    ? document.cables
-        .map((cable) => ({ cable, route: routeBoardCable(document, cable) }))
-        .filter((item) => item.route !== null)
-    : [];
-  const bounds = cablePaintBounds(
-    document,
-    routes.flatMap(({ route }) => route?.points ?? []),
-  );
-  const left = bounds.x,
-    top = bounds.y;
-  const width = Math.max(600, bounds.width),
-    height = Math.max(400, bounds.height);
+  const left = Math.min(0, ...document.elements.map((item) => item.x)) - 24;
+  const top = Math.min(0, ...document.elements.map((item) => item.y)) - 24;
+  const width =
+    Math.max(600, ...document.elements.map((item) => item.x + item.width)) -
+    left +
+    24;
+  const height =
+    Math.max(400, ...document.elements.map((item) => item.y + item.height)) -
+    top +
+    24;
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${left} ${top} ${width} ${height}"><rect x="${left}" y="${top}" width="${width}" height="${height}" fill="#0d1510"/>`;
   for (const element of [...document.elements].sort((a, b) => a.z - b.z)) {
     svg += `<g><rect x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}" rx="9" fill="${element.color || '#24332b'}" stroke="#526358"/><text x="${element.x + 16}" y="${element.y + 30}" fill="#edf1ed" font-family="Arial,sans-serif" font-size="17">${escape(element.name)}</text>`;
@@ -93,21 +88,17 @@ export function boardImageSvg(document: BoardDocument): string {
           color={resolveBoardPortColor(document, port)}
         />,
       ).replace('<svg ', '<svg width="64" height="60" ');
-      const labelClip = `port-label-${document.ports.indexOf(port)}`;
-      svg += `<g transform="translate(${rect.x} ${rect.y})">${artwork}<defs><clipPath id="${labelClip}"><rect x="0" y="61" width="64" height="31"/></clipPath></defs><text clip-path="url(#${labelClip})" x="32" y="76" fill="#edf1ed" text-anchor="middle" font-family="Arial,sans-serif" font-size="11">${escape(port.name.length > 14 ? port.name.slice(0, 13) + '…' : port.name)}</text></g>`;
+      svg += `<g transform="translate(${rect.x} ${rect.y})">${artwork}<text x="32" y="76" fill="#edf1ed" text-anchor="middle" font-family="Arial,sans-serif" font-size="11">${escape(port.name.length > 14 ? port.name.slice(0, 13) + '…' : port.name)}</text></g>`;
     }
     svg += '</g>';
   }
-  if (routes.length) {
-    svg += `<defs><mask id="portfolio-cable-protection" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" style="mask-type:luminance"><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" fill="white"/>`;
-    for (const region of cableProtectedRegions(document))
-      svg += `<rect class="board-cable-protected-${region.kind}" x="${region.x}" y="${region.y}" width="${region.width}" height="${region.height}" fill="black"/>`;
-    svg += '</mask></defs><g mask="url(#portfolio-cable-protection)">';
-    for (const { cable, route } of routes)
-      if (route)
-        svg += `<path d="${escape(route.path)}" fill="none" stroke="${escape(cable.color || '#b8c6d0')}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
-    svg += '</g>';
-  }
+  if (document.showCables)
+    for (const cable of document.cables) {
+      const a = getPortPoint(document, cable.sourcePortId),
+        b = getPortPoint(document, cable.targetPortId);
+      if (a && b)
+        svg += `<path d="${cableCurve(a, b)}" fill="none" stroke="${cable.color || '#b8c6d0'}" stroke-width="3" stroke-linecap="round"/>`;
+    }
   return svg + '</svg>';
 }
 export function downloadBoardImage(document: BoardDocument, name: string) {

@@ -18,17 +18,13 @@ import {
   BoardPort,
   BoardViewport,
 } from '../../../../packages/shared/src/board.js';
-import { routeBoardCable, outsideCableHitPath } from './cable-routing.js';
-import {
-  cableProtectedRegions,
-  cablePaintBounds,
-  nearestCableAtPoint,
-} from './cable-rendering.js';
 import { NetworkSummary } from './NetworkSummary.js';
 import { makeBoardPort } from './commands.js';
 import { Connector } from '../visual/Connector.js';
 import {
   activeFace,
+  cableCurve,
+  cableHitPath,
   clamp,
   DEVICE_HEADER,
   DEVICE_PADDING,
@@ -117,7 +113,6 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const [hoverPort, setHoverPort] = useState<string | null>(null);
   const [touchSummary, setTouchSummary] = useState<string | null>(null);
   const summaryId = useId();
-  const cableMaskId = `cable-text-mask-${useId().replace(/[^a-z0-9_-]/gi, '')}`;
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hold = useRef<{ pointer: number; portId: string; start: Point } | null>(
     null,
@@ -319,23 +314,6 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [rename]);
   const visible = preview ?? document;
   const viewport = visible.viewport;
-  const routedCables = useMemo(
-    () =>
-      visible.showCables
-        ? visible.cables
-            .map((cable) => ({ cable, route: routeBoardCable(visible, cable) }))
-            .filter((item) => item.route !== null)
-        : [],
-    [visible],
-  );
-  const cableProtection = useMemo(
-    () => cableProtectedRegions(visible),
-    [visible],
-  );
-  const cableBounds = cablePaintBounds(
-    visible,
-    routedCables.flatMap(({ route }) => route?.points ?? []),
-  );
   const lookups = useMemo(() => {
     const ports = new Map(visible.ports.map((port) => [port.id, port]));
     const elements = new Map(
@@ -1491,32 +1469,10 @@ export function BoardCanvas(props: BoardCanvasProps) {
           })}
         {visible.showCables && (
           <svg className="board-cable-layer" aria-label="Board cables">
-            <defs>
-              <mask
-                id={cableMaskId}
-                className="board-cable-protection-mask"
-                maskUnits="userSpaceOnUse"
-                maskContentUnits="userSpaceOnUse"
-                {...cableBounds}
-                style={{ maskType: 'luminance' }}
-              >
-                <rect {...cableBounds} fill="white" />
-                {cableProtection.map((region, index) => (
-                  <rect
-                    key={index}
-                    className={`board-cable-protected-${region.kind}`}
-                    data-protected-object={region.objectId}
-                    x={region.x}
-                    y={region.y}
-                    width={region.width}
-                    height={region.height}
-                    fill="black"
-                  />
-                ))}
-              </mask>
-            </defs>
-            {routedCables.map(({ cable, route }) => {
-              if (!route) return null;
+            {visible.cables.map((cable) => {
+              const a = getPortPoint(visible, cable.sourcePortId),
+                b = getPortPoint(visible, cable.targetPortId);
+              if (!a || !b) return null;
               const source = visible.ports.find(
                   (port) => port.id === cable.sourcePortId,
                 ),
@@ -1528,11 +1484,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 [cable.sourcePortId, cable.targetPortId].includes(
                   hoverPort ?? (selection?.type === 'port' ? selection.id : ''),
                 );
-              const hitPath = outsideCableHitPath(
-                route.points,
-                visible.elements,
-                Math.max(8, 8 / viewport.zoom),
-              );
+              const hitPath = cableHitPath(a, b, visible.elements);
               const label =
                 cable.name ||
                 `Cable: ${source?.name ?? 'Port'} ↔ ${target?.name ?? 'Port'}`;
@@ -1540,20 +1492,15 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 <g
                   key={cable.id}
                   data-board-cable-id={cable.id}
-                  data-source-x={route.source.x}
-                  data-source-y={route.source.y}
-                  data-target-x={route.target.x}
-                  data-target-y={route.target.y}
-                  mask={`url(#${cableMaskId})`}
                   data-highlighted={highlight}
                   style={{ color: cable.color || '#aebec8' }}
                 >
                   <title>{label}</title>
-                  <path className="board-cable-shadow" d={route.path} />
-                  <path className="board-cable-line" d={route.path} />
+                  <path className="board-cable-shadow" d={cableCurve(a, b)} />
+                  <path className="board-cable-line" d={cableCurve(a, b)} />
                   <path
                     className="board-cable-hit"
-                    d={hitPath || route.path}
+                    d={hitPath || cableCurve(a, b)}
                     style={{
                       pointerEvents:
                         hitPath && tool === 'select' ? 'stroke' : 'none',
@@ -1563,17 +1510,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                     aria-label={label}
                     onClick={(event) => {
                       event.stopPropagation();
-                      if (!disabled)
-                        onSelect({
-                          type: 'cable',
-                          id: event.detail
-                            ? nearestCableAtPoint(
-                                routedCables,
-                                screenToWorld(local(event), viewport),
-                                cable.id,
-                              )
-                            : cable.id,
-                        });
+                      if (!disabled) onSelect({ type: 'cable', id: cable.id });
                     }}
                     onKeyDown={(event) => {
                       if (
