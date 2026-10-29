@@ -28,7 +28,7 @@ export type BoardViewport = z.infer<typeof boardViewportSchema>;
 export const boardElementSchema = z
   .object({
     id,
-    type: z.enum(['device', 'network']),
+    type: z.enum(['device', 'network', 'summary']),
     name: z.string().max(240),
     x: position,
     y: position,
@@ -175,6 +175,24 @@ export const boardDocumentSchema = z
         .filter((element) => element.type === 'device')
         .map((element) => element.id),
     );
+    for (const element of doc.elements.filter(
+      (item) => item.type === 'summary',
+    )) {
+      const linked = element.properties.linkedDeviceId;
+      if (
+        linked !== undefined &&
+        (typeof linked !== 'string' ||
+          linked.length > 100 ||
+          (linked &&
+            doc.elements.some(
+              (item) => item.id === linked && item.type !== 'device',
+            )))
+      )
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Summary must link to a device on this board',
+        });
+    }
     const slots = new Set<string>();
     const counts = new Map<string, number>();
     for (const port of doc.ports) {
@@ -388,6 +406,22 @@ export function remapBoardDocument(document: BoardDocument): BoardDocument {
     elements: document.elements.map((element) => ({
       ...element,
       id: ids.get(element.id)!,
+      ...(element.type === 'summary'
+        ? {
+            properties: {
+              ...element.properties,
+              linkedDeviceId:
+                typeof element.properties.linkedDeviceId === 'string' &&
+                document.elements.some(
+                  (item) =>
+                    item.id === element.properties.linkedDeviceId &&
+                    item.type === 'device',
+                )
+                  ? (ids.get(element.properties.linkedDeviceId) ?? '')
+                  : '',
+            },
+          }
+        : {}),
     })),
     ports: document.ports.map((port) => ({
       ...port,

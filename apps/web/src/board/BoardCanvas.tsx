@@ -18,6 +18,7 @@ import {
   BoardPort,
   BoardViewport,
 } from '../../../../packages/shared/src/board.js';
+import { DeviceSummary } from './DeviceSummary.js';
 import { NetworkSummary } from './NetworkSummary.js';
 import { DeviceHeader } from './DeviceHeader.js';
 import { deviceHeaderFields } from './device-header-fields.js';
@@ -106,6 +107,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const root = useRef<HTMLDivElement>(null);
   const latest = useRef(props);
   const gesture = useRef<Gesture | null>(null);
+  const summaryScroll = useRef<{
+    pointer: number;
+    y: number;
+    top: number;
+    element: HTMLElement;
+  } | null>(null);
   const previewRef = useRef<BoardDocument | null>(null);
   const [preview, setPreview] = useState<BoardDocument | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
@@ -231,7 +238,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       if (
         event.target instanceof Element &&
         event.target.closest(
-          'input,textarea,select,[contenteditable="true"],[popover]',
+          'input,textarea,select,[contenteditable="true"],[popover],.board-summary-content',
         )
       )
         return;
@@ -356,7 +363,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (disabled || (event.button !== 0 && event.button !== 1)) return;
     if (
       event.target instanceof Element &&
-      event.target.closest('input,textarea,select')
+      event.target.closest('input,textarea,select,.board-summary-content')
     )
       return;
     const base = wheelViewport.current
@@ -390,7 +397,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (
       disabled ||
       (event.target instanceof Element &&
-        event.target.closest('input,textarea,select'))
+        event.target.closest('input,textarea,select,.board-summary-content'))
     )
       return;
     const point = local(event);
@@ -415,7 +422,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (
       disabled ||
       (event.target instanceof Element &&
-        event.target.closest('input,textarea,select'))
+        event.target.closest('input,textarea,select,.board-summary-content'))
     )
       return;
     const background =
@@ -946,7 +953,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       onKeyDown={(event) => {
         if (
           event.target instanceof Element &&
-          event.target.closest('input,textarea,select')
+          event.target.closest('input,textarea,select,.board-summary-content')
         )
           return;
         if (event.key === 'Escape') {
@@ -1414,6 +1421,48 @@ export function BoardCanvas(props: BoardCanvasProps) {
                         </div>
                       );
                     })}
+                  </div>
+                ) : element.type === 'summary' ? (
+                  <div
+                    className="board-summary-body"
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      const content =
+                        event.target instanceof Element
+                          ? event.target.closest<HTMLElement>(
+                              '.board-summary-content',
+                            )
+                          : null;
+                      if (content && event.pointerType === 'touch') {
+                        summaryScroll.current = {
+                          pointer: event.pointerId,
+                          y: event.clientY,
+                          top: content.scrollTop,
+                          element: content,
+                        };
+                        content.setPointerCapture(event.pointerId);
+                      }
+                    }}
+                    onPointerMove={(event) => {
+                      const scroll = summaryScroll.current;
+                      if (!scroll || scroll.pointer !== event.pointerId) return;
+                      event.stopPropagation();
+                      scroll.element.scrollTop =
+                        scroll.top + (scroll.y - event.clientY) / viewport.zoom;
+                    }}
+                    onPointerUp={(event) => {
+                      if (summaryScroll.current?.pointer === event.pointerId) {
+                        summaryScroll.current = null;
+                        event.stopPropagation();
+                      }
+                    }}
+                    onPointerCancel={() => {
+                      summaryScroll.current = null;
+                    }}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    onKeyUp={(event) => event.stopPropagation()}
+                  >
+                    <DeviceSummary document={visible} element={element} />
                   </div>
                 ) : (
                   <NetworkSummary element={element} />

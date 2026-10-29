@@ -183,7 +183,7 @@ export const BoardEditor = forwardRef<
       if (
         target instanceof HTMLElement &&
         (target.closest('input,textarea,select,[contenteditable=true]') ||
-          target.closest('dialog'))
+          target.closest('dialog,.board-summary-content'))
       )
         return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
@@ -216,7 +216,7 @@ export const BoardEditor = forwardRef<
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
   });
-  function add(type: 'device' | 'network', deviceType = 'Other') {
+  function add(type: BoardElement['type'], deviceType = 'Other') {
     if (blocked()) return;
     const rect = surface.current?.getBoundingClientRect();
     const x =
@@ -230,11 +230,16 @@ export const BoardEditor = forwardRef<
     const element: BoardElement = {
       id: crypto.randomUUID(),
       type,
-      name: type === 'network' ? 'Network' : deviceType,
+      name:
+        type === 'summary'
+          ? 'Summary'
+          : type === 'network'
+            ? 'Network'
+            : deviceType,
       x: Math.round(x / 8) * 8,
       y: Math.round(y / 8) * 8,
-      width: type === 'network' ? 320 : 320,
-      height: type === 'network' ? 220 : 160,
+      width: type === 'summary' ? 640 : 320,
+      height: type === 'summary' ? 480 : type === 'network' ? 220 : 160,
       z: Math.max(0, ...document.elements.map((item) => item.z)) + 1,
       color: '#24332b',
       properties:
@@ -244,7 +249,9 @@ export const BoardEditor = forwardRef<
               portSpacing: 8,
               face: 'front',
             }
-          : { entries: [] },
+          : type === 'summary'
+            ? { linkedDeviceId: '' }
+            : { entries: [] },
     };
     const minimum = minimumBoardDeviceSize(element, []);
     element.width = Math.max(element.width, minimum.width);
@@ -567,6 +574,7 @@ export const BoardEditor = forwardRef<
               >
                 Cable
               </button>
+              <button onClick={() => add('summary')}>Summary</button>
             </>
           ) : (
             <>

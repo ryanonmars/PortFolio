@@ -124,6 +124,9 @@ export function duplicateElement(
   });
   const copied: BoardElement = {
     ...fragment.elements[0]!,
+    ...(element.type === 'summary'
+      ? { properties: structuredClone(element.properties) }
+      : {}),
     name: `${element.name} copy`,
     x: element.x + 24,
     y: element.y + 24,

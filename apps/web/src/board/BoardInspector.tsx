@@ -295,6 +295,38 @@ export function BoardInspector({
               (color) => changeElement({ color }, 'color'),
               'color',
             )}
+            {element.type === 'summary' && (
+              <label>
+                Linked Device
+                <select
+                  aria-label="Linked Device"
+                  value={String(element.properties.linkedDeviceId ?? '')}
+                  onChange={(event) =>
+                    property('linkedDeviceId', event.target.value)
+                  }
+                >
+                  <option value="">None</option>
+                  {typeof element.properties.linkedDeviceId === 'string' &&
+                    element.properties.linkedDeviceId &&
+                    !document.elements.some(
+                      (item) =>
+                        item.id === element.properties.linkedDeviceId &&
+                        item.type === 'device',
+                    ) && (
+                      <option value={element.properties.linkedDeviceId}>
+                        Unavailable device
+                      </option>
+                    )}
+                  {document.elements
+                    .filter((item) => item.type === 'device')
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name || 'Unnamed device'}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
             {element.type === 'device' && (
               <>
                 {input(
@@ -647,7 +679,7 @@ export function BoardInspector({
                   property('customFields', fields),
                 )}
               </details>
-            ) : (
+            ) : element.type === 'device' ? (
               <>
                 {notes(
                   'Notes',
@@ -658,7 +690,7 @@ export function BoardInspector({
                   property('customFields', fields),
                 )}
               </>
-            )}
+            ) : null}
           </>
         )}
         {port && (

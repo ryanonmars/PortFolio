@@ -86,6 +86,92 @@ async function create(
 }
 
 describe('board-centric persistence API', () => {
+  it('persists linked summaries across restart and remaps imports without copying device data', async () => {
+    const client = await fixture();
+    const document = sample();
+    document.elements.push({
+      ...document.elements[0]!,
+      id: 'summary',
+      type: 'summary',
+      name: 'Summary',
+      width: 640,
+      height: 480,
+      properties: { linkedDeviceId: 'a' },
+    });
+    const created = await create(client, 'Summary references', document);
+    await client.restart();
+    const stored = (
+      await client.request('GET', `/api/v1/boards/${created.id}`)
+    ).json().board as BoardRecord;
+    expect(stored.document).toEqual(document);
+    const exported = await client.request(
+      'GET',
+      `/api/v1/boards/${created.id}/export`,
+    );
+    const imported = await client.request(
+      'POST',
+      '/api/v1/boards/import',
+      exported.json(),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const copy: BoardRecord = imported.json().board;
+    expect(copy.document.elements[2]!.properties).toEqual({
+      linkedDeviceId: copy.document.elements[0]!.id,
+    });
+    expect(copy.document.elements[0]!.id).not.toBe('a');
+    const next = structuredClone(stored.document);
+    next.elements = next.elements.filter((element) => element.id !== 'a');
+    next.ports = next.ports.filter((port) => port.deviceId !== 'a');
+    next.cables = [];
+    const deleted = await client.request(
+      'PATCH',
+      `/api/v1/boards/${created.id}`,
+      { rowVersion: stored.rowVersion, document: next },
+    );
+    expect(deleted.statusCode, deleted.body).toBe(200);
+    expect(
+      deleted
+        .json()
+        .board.document.elements.find(
+          (element: { id: string }) => element.id === 'summary',
+        ).properties,
+    ).toEqual({ linkedDeviceId: 'a' });
+    const invalid = structuredClone(next);
+    invalid.elements.find(
+      (element) => element.id === 'summary',
+    )!.properties.linkedDeviceId = 'summary';
+    const denied = await client.request(
+      'PATCH',
+      `/api/v1/boards/${created.id}`,
+      { rowVersion: deleted.json().board.rowVersion, document: invalid },
+    );
+    expect(denied.statusCode).toBe(400);
+    expect(
+      (await client.request('GET', `/api/v1/boards/${created.id}`)).json().board
+        .document,
+    ).toEqual(next);
+    const foreign = await create(client, 'Foreign', {
+      ...emptyBoardDocument(),
+      elements: [{ ...document.elements[0]!, id: 'foreign-device' }],
+    });
+    const isolated = {
+      ...emptyBoardDocument(),
+      elements: [
+        {
+          ...document.elements[2]!,
+          properties: { linkedDeviceId: foreign.document.elements[0]!.id },
+        },
+      ],
+    };
+    const isolatedBoard = await create(
+      client,
+      'Unavailable external reference',
+      isolated,
+    );
+    expect(isolatedBoard.document.elements).toHaveLength(1);
+    expect(isolatedBoard.document.ports).toEqual([]);
+  });
+
   it('persists unrestricted physical slots and stable cable references across restart and resize', async () => {
     const client = await fixture();
     const document = sample();
