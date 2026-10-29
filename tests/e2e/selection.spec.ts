@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type BrowserContext } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import {
   emptyBoardDocument,
@@ -8,6 +8,12 @@ import {
 import { makeBoardPort } from '../../apps/web/src/board/commands.js';
 
 test.use({ actionTimeout: 15_000 });
+// Each test retains a fresh browser context; reuse the suite's own login cookie
+// instead of consuming the real sign-in throttle for every interaction case.
+const authenticatedCookies = new Map<
+  string,
+  Awaited<ReturnType<BrowserContext['cookies']>>
+>();
 const object = (page: Page, id: string) =>
   page.locator(`[data-board-element-id="${id}"]`);
 const selected = (page: Page) =>
@@ -113,23 +119,30 @@ function fixture(zoom = 1, negative = false): BoardDocument {
   return document;
 }
 async function setup(page: Page, document = fixture()) {
+  const project = test.info().project.name;
+  const cookies = authenticatedCookies.get(project);
+  if (cookies) await page.context().addCookies(cookies);
   await page.goto('/');
-  const status = await (
-    await page.request.get('/api/v1/auth/setup-status')
-  ).json();
-  await page.getByLabel('Username', { exact: true }).fill('board-admin');
-  await page
-    .getByLabel('Password', { exact: true })
-    .fill('Synthetic-board-password-42');
-  await page
-    .getByRole('button', {
-      name: status.setupRequired ? 'Create administrator account' : 'Sign in',
-      exact: true,
-    })
-    .click();
+  if (!cookies) {
+    const status = await (
+      await page.request.get('/api/v1/auth/setup-status')
+    ).json();
+    await page.getByLabel('Username', { exact: true }).fill('board-admin');
+    await page
+      .getByLabel('Password', { exact: true })
+      .fill('Synthetic-board-password-42');
+    await page
+      .getByRole('button', {
+        name: status.setupRequired ? 'Create administrator account' : 'Sign in',
+        exact: true,
+      })
+      .click();
+  }
   await expect(
     page.getByRole('button', { name: 'Open board browser', exact: true }),
   ).toBeVisible();
+  if (!cookies)
+    authenticatedCookies.set(project, await page.context().cookies());
   const auth = await (await page.request.get('/api/v1/auth/session')).json();
   const response = await page.request.post('/api/v1/boards', {
     headers: {
@@ -215,6 +228,150 @@ async function headerClick(
 function positions(document: BoardDocument) {
   return document.elements.map(({ id, x, y }) => ({ id, x, y }));
 }
+
+async function labelPoint(page: Page, id: string) {
+  return object(page, id)
+    .locator('.board-element-name')
+    .evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const rect = range.getBoundingClientRect();
+      return {
+        x: rect.x + Math.min(rect.width / 2, 20),
+        y: rect.y + rect.height / 2,
+      };
+    });
+}
+async function dragFrom(
+  page: Page,
+  start: { x: number; y: number },
+  dx: number,
+  dy: number,
+) {
+  await page.keyboard.down('Alt');
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + dx, start.y + dy, { steps: 12 });
+  await expect(page.getByLabel('Object name', { exact: true })).toHaveCount(0);
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await saved(page);
+}
+function expectTranslation(
+  before: BoardDocument,
+  after: BoardDocument,
+  ids: string[],
+  dx: number,
+  dy: number,
+) {
+  for (const element of before.elements) {
+    const moved = after.elements.find((item) => item.id === element.id)!;
+    expect(moved.x).toBeCloseTo(
+      element.x + (ids.includes(element.id) ? dx : 0),
+    );
+    expect(moved.y).toBeCloseTo(
+      element.y + (ids.includes(element.id) ? dy : 0),
+    );
+    expect({ ...moved, x: element.x, y: element.y }).toEqual(element);
+  }
+  expect(after.ports).toEqual(before.ports);
+  expect(after.cables).toEqual(before.cables);
+}
+
+test('device body and title grabs move the whole selection without accidental renaming', async ({
+  page,
+}, info) => {
+  const initial = await setup(page),
+    ids = ['network', 'router', 'summary', 'switch'];
+  await marquee(page, { x: 60, y: 80 }, { x: 750, y: 600 });
+  await expect(selected(page)).toHaveCount(4);
+  let before = (await read(page, initial.id)).document;
+  const box = (await object(page, 'router').boundingBox())!;
+  const body = { x: box.x + box.width * 0.65, y: box.y + box.height * 0.7 };
+  // Clicking an already-selected member must not discard the marquee group.
+  await page.mouse.click(body.x, body.y);
+  expect(await selectedIds(page)).toEqual(ids);
+  await dragFrom(page, body, 40, 24);
+  let after = (await read(page, initial.id)).document;
+  expectTranslation(before, after, ids, 40, 24);
+  expect(await selectedIds(page)).toEqual(ids);
+  before = after;
+  await dragFrom(page, await labelPoint(page, 'router'), 35, -12);
+  after = (await read(page, initial.id)).document;
+  expectTranslation(before, after, ids, 35, -12);
+  expect(await selectedIds(page)).toEqual(ids);
+  for (const id of ['network', 'summary']) {
+    before = after;
+    await dragFrom(page, await labelPoint(page, id), 10, 8);
+    after = (await read(page, initial.id)).document;
+    expectTranslation(before, after, ids, 10, 8);
+    expect(await selectedIds(page)).toEqual(ids);
+  }
+  const label = await labelPoint(page, 'router');
+  await page.mouse.click(label.x, label.y);
+  await expect(page.getByLabel('Object name', { exact: true })).toHaveCount(0);
+  expect(await selectedIds(page)).toEqual(ids);
+  before = after;
+  const chip = (await object(page, 'router')
+    .locator('.board-device-info-chip')
+    .first()
+    .boundingBox())!;
+  await dragFrom(
+    page,
+    { x: chip.x + chip.width / 2, y: chip.y + chip.height / 2 },
+    -15,
+    16,
+  );
+  after = (await read(page, initial.id)).document;
+  expectTranslation(before, after, ids, -15, 16);
+  expect(await selectedIds(page)).toEqual(ids);
+  await page.screenshot({
+    path: info.outputPath('group-moved-from-body-title-and-chip.png'),
+  });
+  await page.keyboard.press('Escape');
+  const singleLabel = await labelPoint(page, 'router');
+  await page.mouse.click(singleLabel.x, singleLabel.y);
+  const input = page.getByLabel('Object name', { exact: true });
+  await expect(input).toBeVisible();
+  await input.fill('Renamed router');
+  await input.press('Enter');
+  await saved(page);
+  await object(page, 'router')
+    .getByRole('button', { name: 'Rename object Renamed router', exact: true })
+    .press('F2');
+  await expect(input).toHaveValue('Renamed router');
+  await input.press('Escape');
+  before = (await read(page, initial.id)).document;
+  await dragFrom(page, await labelPoint(page, 'router'), 20, 16);
+  after = (await read(page, initial.id)).document;
+  expectTranslation(before, after, ['router'], 20, 16);
+  const controlsBefore = (await read(page, initial.id)).document;
+  for (const control of [
+    object(page, 'router').getByRole('button', { name: 'Rear', exact: true }),
+    page.locator(`button[data-port-id="${controlsBefore.ports[0]!.id}"]`),
+  ]) {
+    const rect = (await control.boundingBox())!;
+    await dragFrom(
+      page,
+      { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+      64,
+      30,
+    );
+    expect((await read(page, initial.id)).document).toEqual(controlsBefore);
+  }
+  const address = page
+    .getByRole('complementary', { name: 'Object inspector', exact: true })
+    .getByLabel('Management address', { exact: true });
+  await address.fill('router.example');
+  await saved(page);
+  expect(positions((await read(page, initial.id)).document)).toEqual(
+    positions(controlsBefore),
+  );
+  const doubleLabel = await labelPoint(page, 'router');
+  await page.mouse.dblclick(doubleLabel.x, doubleLabel.y);
+  await expect(page.getByLabel('Object name', { exact: true })).toBeVisible();
+  await page.getByLabel('Object name', { exact: true }).press('Escape');
+});
 
 test('marquee, modifiers, enclosure and cancellation keep mixed container selections', async ({
   page,
@@ -529,6 +686,204 @@ test('touch background drag preserves panning and port inspection', async ({
   expect(after.viewport.y).toBeCloseTo(before.viewport.y + 24);
   expect(after.elements).toEqual(before.elements);
   await expect(page.locator('.board-marquee')).toHaveCount(0);
+  const box = (await object(page, 'router').boundingBox())!;
+  const body = { x: box.x + box.width * 0.65, y: box.y + box.height * 0.7 };
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    modifiers: 1,
+    touchPoints: [{ x: body.x, y: body.y }],
+  });
+  for (let step = 1; step <= 6; step++)
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      modifiers: 1,
+      touchPoints: [
+        { x: body.x + (14 * step) / 6, y: body.y + (7 * step) / 6 },
+      ],
+    });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    modifiers: 1,
+    touchPoints: [],
+  });
+  await saved(page);
+  expectTranslation(
+    after,
+    (await read(page, initial.id)).document,
+    ['router'],
+    40,
+    20,
+  );
+  await expect(page.getByLabel('Object name', { exact: true })).toHaveCount(0);
+  const close = page.getByRole('button', {
+    name: 'Close inspector',
+    exact: true,
+  });
+  if (await close.isVisible()) await close.click();
   await page.locator(`button[data-port-id="${before.ports[0]!.id}"]`).tap();
   await expect(page.getByLabel('PVID', { exact: true })).toBeVisible();
+});
+
+test('narrow devices keep body and actual title drag targets usable at half, normal and high zoom', async ({
+  page,
+}, info) => {
+  const document = fixture(0.5);
+  document.elements = document.elements.map((element) =>
+    element.id === 'outside'
+      ? element
+      : {
+          ...element,
+          x: element.id === 'switch' || element.id === 'summary' ? 300 : 40,
+          width: 190,
+        },
+  );
+  const initial = await setup(page, document),
+    ids = ['network', 'router', 'summary', 'switch'];
+  for (const zoom of [0.5, 1, 1.5]) {
+    const current = await read(page, initial.id);
+    const auth = await (await page.request.get('/api/v1/auth/session')).json();
+    const response = await page.request.patch(`/api/v1/boards/${initial.id}`, {
+      headers: {
+        Origin: new URL(page.url()).origin,
+        'x-csrf-token': auth.csrfToken,
+      },
+      data: {
+        rowVersion: current.rowVersion,
+        document: { ...current.document, viewport: { x: 40, y: 40, zoom } },
+      },
+    });
+    expect(response.status()).toBe(200);
+    await page.reload();
+    await saved(page);
+    const collapse = page.getByRole('button', {
+      name: 'Collapse board browser',
+      exact: true,
+    });
+    if (await collapse.isVisible()) await collapse.click();
+    const before = (await read(page, initial.id)).document;
+    const members = before.elements.filter((element) =>
+      ids.includes(element.id),
+    );
+    const left = Math.min(...members.map((element) => element.x)) - 10;
+    const top = Math.min(...members.map((element) => element.y)) - 10;
+    const right =
+      Math.max(...members.map((element) => element.x + element.width)) + 10;
+    const bottom =
+      Math.max(...members.map((element) => element.y + element.height)) + 10;
+    await marquee(
+      page,
+      { x: 40 + left * zoom, y: 40 + top * zoom },
+      { x: 40 + right * zoom, y: 40 + bottom * zoom },
+    );
+    expect(await selectedIds(page)).toEqual(ids);
+    const box = (await object(page, 'router').boundingBox())!;
+    await dragFrom(
+      page,
+      { x: box.x + box.width * 0.7, y: box.y + box.height * 0.75 },
+      20 * zoom,
+      12 * zoom,
+    );
+    let after = (await read(page, initial.id)).document;
+    expectTranslation(before, after, ids, 20, 12);
+    const bodyMoved = after;
+    await dragFrom(
+      page,
+      await labelPoint(page, 'router'),
+      -12 * zoom,
+      8 * zoom,
+    );
+    after = (await read(page, initial.id)).document;
+    expectTranslation(bodyMoved, after, ids, -12, 8);
+    expect(await selectedIds(page)).toEqual(ids);
+    await page.screenshot({
+      path: info.outputPath(`narrow-body-title-${zoom}.png`),
+    });
+  }
+});
+
+test('touch background navigation keeps low-zoom title double-click and tap editing open', async ({
+  page,
+  context,
+}, info) => {
+  const document = fixture(0.49);
+  document.elements = [
+    {
+      ...document.elements[0]!,
+      name: 'Edge switch',
+      x: 100,
+      y: 100,
+      width: 600,
+      height: 220,
+      properties: {
+        deviceType: 'Switch',
+        managementAddress: '2001:db8::2, switch.example.test',
+      },
+    },
+  ];
+  document.ports = Array.from({ length: 8 }, (_, column) =>
+    makeBoardPort('router', 'rj45', 0, column, `Port ${column + 1}`),
+  );
+  document.cables = [];
+  const initial = await setup(page, document);
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await saved(page);
+  const before = (await read(page, initial.id)).document;
+  expect(before.viewport.zoom).toBeLessThan(0.6);
+  await object(page, 'router').locator('.board-element-name').dblclick();
+  const input = page.getByLabel('Object name', { exact: true });
+  await expect(input).toBeVisible();
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
+  await input.fill('Double-click renamed');
+  await input.press('Enter');
+  await saved(page);
+  let after = (await read(page, initial.id)).document;
+  expect(after.elements[0]!.name).toBe('Double-click renamed');
+  expect(positions(after)).toEqual(positions(before));
+  expect(after.ports).toEqual(before.ports);
+  await object(page, 'router').locator('.board-element-name').tap();
+  await expect(input).toBeVisible();
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
+  await page.screenshot({
+    path: info.outputPath('low-zoom-mobile-title-editor.png'),
+  });
+  await input.fill('Tapped name');
+  await input.press('Enter');
+  await saved(page);
+  after = (await read(page, initial.id)).document;
+  expect(after.elements[0]!.name).toBe('Tapped name');
+  expect(positions(after)).toEqual(positions(before));
+  expect(after.ports).toEqual(before.ports);
+  const start = await labelPoint(page, 'router'),
+    client = await context.newCDPSession(page);
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    modifiers: 1,
+    touchPoints: [{ x: start.x, y: start.y }],
+  });
+  for (let step = 1; step <= 6; step++)
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      modifiers: 1,
+      touchPoints: [
+        { x: start.x + (14 * step) / 6, y: start.y + (7 * step) / 6 },
+      ],
+    });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    modifiers: 1,
+    touchPoints: [],
+  });
+  await saved(page);
+  await expect(input).toHaveCount(0);
+  expectTranslation(
+    after,
+    (await read(page, initial.id)).document,
+    ['router'],
+    14 / before.viewport.zoom,
+    7 / before.viewport.zoom,
+  );
 });

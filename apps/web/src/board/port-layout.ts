@@ -1,5 +1,7 @@
 import {
   boardPortCapacity,
+  boardPortLayout,
+  minimumBoardDeviceSize,
   maxBoardPortColumn,
   maxBoardPortRow,
   type BoardDocument,
@@ -104,6 +106,26 @@ function target(
   return device;
 }
 
+/** Creation may expand the device, without moving or shrinking authored content. */
+function deviceForNewPorts(
+  device: BoardElement,
+  ports: BoardPort[],
+): BoardElement {
+  const minimum = minimumBoardDeviceSize(device, ports);
+  if (
+    minimum.width > boardPortLayout.maxDeviceSize ||
+    minimum.height > boardPortLayout.maxDeviceSize
+  )
+    throw new Error(
+      'This layout exceeds the supported device size. Choose fewer ports per row or a different starting slot.',
+    );
+  const width = Math.max(device.width, minimum.width);
+  const height = Math.max(device.height, minimum.height);
+  return width === device.width && height === device.height
+    ? device
+    : { ...device, width, height };
+}
+
 function validatePlacement(
   device: BoardElement,
   proposed: BoardPort[],
@@ -166,7 +188,11 @@ export function previewPortBank(
       face,
     ),
   );
-  validatePlacement(device, added, existing);
+  validatePlacement(
+    deviceForNewPorts(device, [...existing, ...added]),
+    added,
+    existing,
+  );
   return added;
 }
 
@@ -190,7 +216,19 @@ export function addPortBank(
     startNumber,
     labelPrefix,
   );
-  return { ...document, ports: [...document.ports, ...added] };
+  const ports = [...document.ports, ...added];
+  const device = target(document, deviceId, face);
+  const expanded = deviceForNewPorts(device, ports);
+  return {
+    ...document,
+    ports,
+    elements:
+      expanded === device
+        ? document.elements
+        : document.elements.map((item) =>
+            item.id === deviceId ? expanded : item,
+          ),
+  };
 }
 
 export function previewPortLayout(

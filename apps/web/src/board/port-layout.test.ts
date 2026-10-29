@@ -200,7 +200,7 @@ describe('universal physical port slots', () => {
   });
 });
 
-describe('strict-fit port banks', () => {
+describe('port banks with grow-to-fit creation', () => {
   it.each(['Router', 'Switch', 'Firewall', 'Access Point', 'Server', 'Custom'])(
     'makes presets available to %s devices without a manufacturer database',
     (deviceType) => {
@@ -290,16 +290,51 @@ describe('strict-fit port banks', () => {
     ]);
     expect(boardDocumentSchema.safeParse(document).success).toBe(true);
   });
-  it('requires available device space and collision-free slots, without mutating or resizing input', () => {
+  it.each([
+    ['single-row', 24, undefined, 1752, 204],
+    ['odd-top', 24, undefined, 888, 304],
+    ['odd-bottom', 24, undefined, 888, 304],
+    ['sequential', 48, 24, 1752, 304],
+  ] as const)(
+    'grows a new %s layout atomically from an empty device',
+    (preset, count, columns, width, height) => {
+      const document = fixture();
+      document.elements[0]!.width = 280;
+      document.elements[0]!.height = 200;
+      const before = structuredClone(document);
+      const options = { preset, columns };
+      expect(
+        previewPortBank(document, 'device', 'rj45', count, 'front', options),
+      ).toHaveLength(count);
+      expect(document).toEqual(before);
+      const result = addPortBank(
+        document,
+        'device',
+        'rj45',
+        count,
+        'front',
+        options,
+      );
+      expect(result.elements[0]).toEqual({
+        ...before.elements[0],
+        width,
+        height,
+      });
+      expect(result.ports).toHaveLength(count);
+      expect(boardDocumentSchema.safeParse(result).success).toBe(true);
+      expect(document).toEqual(before);
+    },
+  );
+  it('expands for creation while preserving collision checks and the input document', () => {
     const document = fixture();
     document.elements[0]!.width = 180;
     document.elements[0]!.height = 240;
     const before = structuredClone(document);
-    expect(() =>
-      addPortBank(document, 'device', 'rj45', 8, 'front', {
-        preset: 'single-row',
-      }),
-    ).toThrow(/Resize the device or adjust/);
+    const grown = addPortBank(document, 'device', 'rj45', 8, 'front', {
+      preset: 'single-row',
+    });
+    expect(grown.elements[0]!.width).toBe(600);
+    expect(grown.elements[0]!.height).toBe(240);
     expect(document).toEqual(before);
     const first = addPortBank(document, 'device', 'rj45', 1, 'front', {
       preset: 'single-row',
@@ -314,11 +349,18 @@ describe('strict-fit port banks', () => {
         .ports,
     ).toHaveLength(2);
     document.elements[0]!.properties.portSpacing = 40;
+    const spaced = addPortBank(document, 'device', 'rj45', 2, 'front', {
+      preset: 'single-row',
+    });
+    expect(spaced.elements[0]!.width).toBe(200);
+    const oversizedBefore = structuredClone(document);
     expect(() =>
-      addPortBank(document, 'device', 'rj45', 2, 'front', {
+      previewPortBank(document, 'device', 'rj45', 1, 'front', {
         preset: 'single-row',
+        column: maxBoardPortColumn,
       }),
-    ).toThrow(/Resize/);
+    ).toThrow(/supported device size/);
+    expect(document).toEqual(oversizedBefore);
   });
   it('enforces board and device limits, valid targets and names without partial additions', () => {
     const document = fixture();
@@ -413,6 +455,22 @@ describe('applying layouts to existing records', () => {
     ];
     return document;
   }
+  it('grows new banks without moving configured ports on either face or shrinking custom height', () => {
+    const document = configured();
+    document.elements[0]!.width = 600;
+    const before = structuredClone(document);
+    const oldEndpoint = getPortPoint(document, document.ports[0]!.id);
+    const result = addPortBank(document, 'device', 'sfp_plus', 24, 'front', {
+      preset: 'single-row',
+      column: 8,
+    });
+    expect(result.elements[0]).toEqual({ ...before.elements[0], width: 2328 });
+    expect(result.ports.slice(0, before.ports.length)).toEqual(before.ports);
+    expect(result.cables).toBe(document.cables);
+    expect(getPortPoint(result, document.ports[0]!.id)).toEqual(oldEndpoint);
+    expect(document).toEqual(before);
+    expect(boardDocumentSchema.safeParse(result).success).toBe(true);
+  });
   it('previews and changes physical slots only on the chosen face, preserving insertion order and mixed types', () => {
     const document = configured(),
       before = structuredClone(document);

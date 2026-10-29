@@ -70,6 +70,7 @@ type Gesture = {
   selection?: BoardSelection | null;
   additive?: boolean;
   modified?: boolean;
+  renameOnClick?: Rename;
   pointer: number;
   start: Point;
   base: BoardDocument;
@@ -125,6 +126,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   } | null>(null);
   const previewRef = useRef<BoardDocument | null>(null);
   const [preview, setPreview] = useState<BoardDocument | null>(null);
+  const [moving, setMoving] = useState(false);
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const selectedIds =
     selection?.type === 'element' ? (selection.ids ?? [selection.id]) : [];
@@ -232,6 +234,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     latest.current = props;
   }, [props]);
   function showPreview(next: BoardDocument | null) {
+    if (!next) setMoving(false);
     previewRef.current = next;
     setPreview(next);
   }
@@ -251,6 +254,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       );
       previewRef.current = null;
       setPreview(null);
+      setMoving(false);
       latest.current.onGestureChange?.(false);
     }
   }
@@ -313,6 +317,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
           );
         previewRef.current = null;
         setPreview(null);
+        setMoving(false);
         latest.current.onGestureChange?.(false);
       }, 180);
     }
@@ -356,6 +361,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     }
     const reset = requestAnimationFrame(() => {
       setPreview(null);
+      setMoving(false);
       setMarquee(null);
       setGuides([]);
     });
@@ -382,6 +388,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       pointers.current.clear();
       previewRef.current = null;
       setPreview(null);
+      setMoving(false);
       setMarquee(null);
       setGuides([]);
       latest.current.onGestureChange?.(false);
@@ -429,6 +436,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     type: Gesture['type'],
     id?: string,
     handle?: string,
+    renameOnClick?: Rename,
   ) {
     if (disabled || (event.button !== 0 && event.button !== 1)) return;
     if (
@@ -446,7 +454,15 @@ export function BoardCanvas(props: BoardCanvasProps) {
     root.current?.setPointerCapture(event.pointerId);
     let ids: string[] | undefined;
     if (type === 'move') {
-      ids = chooseElement(id!, event, true);
+      // A title click edits directly. Opening the mobile inspector here can
+      // cover the title before a second click or its editor receives focus.
+      const directTitle =
+        renameOnClick && !event.shiftKey && !event.metaKey && !event.ctrlKey;
+      ids = directTitle
+        ? selectedIds.includes(id!)
+          ? selectedIds
+          : [id!]
+        : chooseElement(id!, event, true);
       suppressClickUntil.current = event.timeStamp + 500;
     }
     gesture.current = {
@@ -455,6 +471,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       selection,
       additive: event.shiftKey,
       modified: event.shiftKey || event.metaKey || event.ctrlKey,
+      renameOnClick,
       pointer: event.pointerId,
       start: local(event),
       base,
@@ -487,6 +504,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       const [a, b] = [...pointers.current.values()];
       gesture.current = null;
       suppressClickUntil.current = event.timeStamp + 500;
+      setMoving(false);
       pinch.current = {
         distance: Math.hypot(b!.x - a!.x, b!.y - a!.y),
         viewport: visible.viewport,
@@ -599,6 +617,9 @@ export function BoardCanvas(props: BoardCanvasProps) {
       return;
     }
     if (active.type === 'move') {
+      if (active.renameOnClick && !active.modified && !previewRef.current)
+        selectIds(active.ids ?? []);
+      setMoving(true);
       const result = moveSelection(
         active.base,
         active.ids ?? [],
@@ -754,7 +775,18 @@ export function BoardCanvas(props: BoardCanvasProps) {
     gesture.current = null;
     if (active.type === 'move') {
       suppressClickUntil.current = event.timeStamp + 500;
-      if (!active.moved && !active.modified) selectIds([active.id!]);
+      if (
+        !active.moved &&
+        !active.modified &&
+        active.renameOnClick &&
+        active.ids?.length === 1
+      ) {
+        const element = latest.current.document.elements.find(
+          (item) => item.id === active.renameOnClick!.id,
+        );
+        if (element)
+          setRename({ type: 'element', id: element.id, value: element.name });
+      }
     }
     setMarquee(null);
     setGuides([]);
@@ -1029,8 +1061,19 @@ export function BoardCanvas(props: BoardCanvasProps) {
         tabIndex={disabled ? -1 : 0}
         aria-label={`Rename ${type === 'element' ? 'object' : 'port'} ${name}`}
         onPointerDown={(event) => {
-          // A label is an editing target. Capturing its pointer on the canvas
-          // retargets pointerup/click and prevents the native double-click.
+          if (type === 'element') {
+            if (
+              tool === 'pan' ||
+              root.current?.classList.contains('space-pan') ||
+              event.button === 1
+            )
+              begin(event, 'pan');
+            else if (tool === 'select' || tool === 'ports')
+              begin(event, 'move', id, undefined, { type, id, value: name });
+            else event.stopPropagation();
+            return;
+          }
+          // Port names remain editing controls, separate from device movement.
           if (tool !== 'pan' && !root.current?.classList.contains('space-pan'))
             event.stopPropagation();
         }}
@@ -1065,7 +1108,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   return (
     <div
       ref={root}
-      className={`board-canvas tool-${tool}`}
+      className={`board-canvas tool-${tool}${moving ? ' is-moving' : ''}`}
       data-testid="board-canvas"
       tabIndex={0}
       role="region"
@@ -1245,10 +1288,27 @@ export function BoardCanvas(props: BoardCanvasProps) {
                   zIndex: element.z,
                   borderColor: element.color || undefined,
                 }}
+                onPointerDown={(event) => {
+                  const target =
+                    event.target instanceof Element ? event.target : null;
+                  if (
+                    target?.closest(
+                      'button,input,textarea,select,[contenteditable="true"],[popover],.board-port,.board-resize-handle,.board-summary-content,.board-network-summary',
+                    )
+                  )
+                    return;
+                  if (
+                    tool === 'pan' ||
+                    root.current?.classList.contains('space-pan') ||
+                    event.button === 1
+                  )
+                    begin(event, 'pan');
+                  else if (tool === 'select') begin(event, 'move', element.id);
+                }}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (!disabled && tool === 'select')
-                    chooseElement(element.id, event);
+                    chooseElement(element.id, event, true);
                 }}
               >
                 <header

@@ -544,16 +544,132 @@ test('applying existing layouts preserves all configuration and cable identities
   expect(freeform.cables).toEqual(before.cables);
 });
 
-test('explicit presets explain insufficient space and never resize or write an invalid layout', async ({
+test('new preset banks grow small devices atomically and retain dimensions through undo and reload', async ({
+  page,
+}, info) => {
+  test.setTimeout(120_000);
+  await login(page);
+  for (const layout of [
+    { preset: 'single-row', count: 24, columns: 24 },
+    { preset: 'odd-bottom', count: 24, columns: 12 },
+    { preset: 'sequential', count: 48, columns: 24 },
+  ]) {
+    const id = await create(page, fixture('Custom', 320, 200));
+    const before = (await read(page, id)).document;
+    await selectPreset(page, layout.preset, layout.count, layout.columns);
+    await expect(preview(page).locator('[data-preview-port-id]')).toHaveCount(
+      layout.count,
+    );
+    await expect(
+      inspector(page).getByRole('button', {
+        name: 'Add port bank',
+        exact: true,
+      }),
+    ).toBeEnabled();
+    expect((await read(page, id)).document).toEqual(before);
+    await inspector(page)
+      .getByRole('button', { name: 'Add port bank', exact: true })
+      .click();
+    await saved(page);
+    const after = (await read(page, id)).document;
+    const expected = slots(layout.count, layout.preset, layout.columns);
+    const maxRow = Math.max(...expected.map(([row]) => row!));
+    const maxColumn = Math.max(...expected.map(([, column]) => column!));
+    expect(after.ports.map(({ row, column }) => [row, column])).toEqual(
+      expected,
+    );
+    expect(after.elements[0]).toEqual({
+      ...before.elements[0]!,
+      width: Math.max(320, 32 + (maxColumn + 1) * 64 + maxColumn * 8),
+      height: Math.max(200, 112 + (maxRow + 1) * 92 + maxRow * 8),
+    });
+    expect(after.viewport).toEqual(before.viewport);
+    noOverlap(after);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await saved(page);
+    expect((await read(page, id)).document).toEqual(before);
+    await page.getByRole('button', { name: 'Redo', exact: true }).click();
+    await saved(page);
+    expect((await read(page, id)).document).toEqual(after);
+    await page.reload();
+    await saved(page);
+    expect((await read(page, id)).document).toEqual(after);
+    const collapse = page.getByRole('button', {
+      name: 'Collapse board browser',
+      exact: true,
+    });
+    if (await collapse.isVisible()) await collapse.click();
+    await screenshot(
+      page,
+      info.outputPath('auto-grown-' + layout.preset + '.png'),
+    );
+  }
+});
+
+test('adding an offset bank grows around existing front and rear ports without changing cables or authored data', async ({
+  page,
+}, info) => {
+  await login(page);
+  const document = configured();
+  document.elements[0] = { ...document.elements[0]!, width: 600, height: 220 };
+  const id = await create(page, document),
+    before = (await read(page, id)).document;
+  const cable = page.locator('[data-board-cable-id="cable"] .board-cable-line');
+  const oldPath = await cable.getAttribute('d');
+  await bank(page, 3, 'qsfp', 10, 10, 3);
+  const after = (await read(page, id)).document;
+  expect(after.ports.slice(0, before.ports.length)).toEqual(before.ports);
+  expect(
+    after.ports
+      .slice(before.ports.length)
+      .map(({ name, kind, face, row, column }) => [
+        name,
+        kind,
+        face,
+        row,
+        column,
+      ]),
+  ).toEqual([
+    ['Port 10', 'qsfp', 'front', 2, 9],
+    ['Port 11', 'qsfp', 'front', 2, 10],
+    ['Port 12', 'qsfp', 'front', 2, 11],
+  ]);
+  expect(after.elements[0]).toEqual({
+    ...before.elements[0]!,
+    width: 888,
+    height: 404,
+  });
+  expect(after.elements[1]).toEqual(before.elements[1]);
+  expect(after.cables).toEqual(before.cables);
+  await expect(cable).toHaveAttribute('d', oldPath!);
+  noOverlap(after);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await saved(page);
+  expect((await read(page, id)).document).toEqual(before);
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await saved(page);
+  expect((await read(page, id)).document).toEqual(after);
+  await screenshot(
+    page,
+    info.outputPath('auto-grown-mixed-bank-with-cable.png'),
+  );
+});
+
+test('rearranging existing ports still requires sufficient space and cannot resize or alter configuration implicitly', async ({
   page,
 }) => {
   await login(page);
-  const id = await create(page, fixture('Custom', 320, 220)),
+  const document = configured();
+  document.elements[0] = { ...document.elements[0]!, width: 600, height: 220 };
+  const id = await create(page, document),
     before = (await read(page, id)).document;
-  await selectPreset(page, 'single-row', 24);
-  await expect(preview(page).locator('[data-preview-port-id]')).toHaveCount(24);
+  await selectPreset(page, 'odd-bottom', 1, 4);
+  await details(page, 'Arrange existing ports');
   await expect(
-    inspector(page).getByRole('button', { name: 'Add port bank', exact: true }),
+    preview(page, true).locator('[data-preview-port-id]'),
+  ).toHaveCount(8);
+  await expect(
+    inspector(page).getByRole('button', { name: 'Apply layout', exact: true }),
   ).toBeDisabled();
   await expect(inspector(page)).toContainText(/resize|space|fit/i);
   expect((await read(page, id)).document).toEqual(before);

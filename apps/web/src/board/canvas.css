@@ -461,3 +461,17 @@
   border: 1px solid #6aa9ef;
   background: rgb(75 145 225 / 14%);
 }
+
+/* Blank device space and labels are part of the same generous drag surface. */
+.board-canvas.tool-select .board-element {
+  cursor: grab;
+}
+.board-canvas.tool-select .board-port,
+.board-canvas.tool-select .board-network-summary,
+.board-canvas.tool-select .board-summary-content {
+  cursor: auto;
+}
+.board-canvas.is-moving,
+.board-canvas.is-moving * {
+  cursor: grabbing !important;
+}
