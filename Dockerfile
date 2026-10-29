@@ -11,7 +11,10 @@ COPY tsconfig*.json ./
 COPY apps ./apps
 COPY packages ./packages
 COPY scripts ./scripts
-RUN pnpm build && CI=true pnpm prune --prod
+RUN pnpm build \
+    && CI=true pnpm prune --prod \
+    && find dist -type f -name '*.map' -delete \
+    && rm -f dist/scripts/seed.js
 
 FROM node:24.21.0-bookworm-slim AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3088 DATA_DIR=/data
@@ -20,8 +23,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/db/migrations ./packages/db/migrations
-RUN mkdir /data && chown node:node /data
+RUN mkdir -m 0700 /data && chown node:node /data
 USER node
 EXPOSE 3088
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD node -e "fetch('http://127.0.0.1:3088/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3088)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/apps/api/src/server.js"]

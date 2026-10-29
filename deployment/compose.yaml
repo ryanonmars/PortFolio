@@ -1,0 +1,25 @@
+name: portfolio
+services:
+  portfolio:
+    image: ghcr.io/ryanonmars/portfolio:${IMAGE_TAG:-v0.1.0}
+    init: true
+    environment:
+      PUBLIC_ORIGIN: '${PUBLIC_ORIGIN:-http://localhost:${PORT:-3088}}'
+      LOCAL_ORIGIN: 'http://127.0.0.1:${PORT:-3088}'
+      ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-}'
+    ports:
+      - '${BIND_ADDRESS:-0.0.0.0}:${PORT:-3088}:3088'
+    volumes:
+      - type: bind
+        source: ${DATA_PATH:-/mnt/tank/configs/portfolio}
+        target: /data
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
