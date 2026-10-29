@@ -12,7 +12,7 @@ export function placePortTooltip(
   const top = viewport.y + margin;
   const right = viewport.x + viewport.width - margin;
   const bottom = viewport.y + viewport.height - margin;
-  const width = Math.min(340, size.width, right - left);
+  const width = Math.min(480, size.width, right - left);
   if (width <= 0 || bottom <= top) return null;
   const above = Math.max(0, anchor.y - gap - top);
   const below = Math.max(0, bottom - (anchor.y + anchor.height + gap));

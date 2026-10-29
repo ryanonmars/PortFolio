@@ -260,7 +260,7 @@ async function positioned(page: Page, id = 'source-0') {
     port = (await socket(page, id).boundingBox())!,
     canvas = (await page.getByTestId('board-canvas').boundingBox())!;
   const viewport = page.viewportSize()!;
-  expect(tip.width).toBeLessThanOrEqual(341);
+  expect(tip.width).toBeLessThanOrEqual(481);
   expect(tip.x).toBeGreaterThanOrEqual(0);
   expect(tip.y).toBeGreaterThanOrEqual(0);
   expect(tip.x + tip.width).toBeLessThanOrEqual(
@@ -318,6 +318,13 @@ test('structured summaries use existing pills and current authored fields withou
     ).toHaveText(value);
   }
   await positioned(page);
+  await expect(card(page).locator('.board-port-tooltip-name')).toHaveCSS(
+    'font-size',
+    '20px',
+  );
+  await expect(
+    card(page).locator('[data-field="pvid"] .board-network-chip-value'),
+  ).toHaveCSS('font-size', '16px');
   await expect(
     card(page).locator('input, select, button, textarea'),
   ).toHaveCount(0);

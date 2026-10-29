@@ -7,23 +7,23 @@ describe('port tooltip placement in screen coordinates', () => {
     expect(
       placePortTooltip(
         { x: 300, y: 400, width: 64, height: 60 },
-        { width: 340, height: 220 },
+        { width: 480, height: 220 },
         viewport,
       ),
-    ).toEqual({ x: 162, y: 170, width: 340, maxHeight: 220, side: 'above' });
+    ).toEqual({ x: 92, y: 170, width: 480, maxHeight: 220, side: 'above' });
   });
   it('flips below near the top and above near the bottom', () => {
     expect(
       placePortTooltip(
         { x: 300, y: 10, width: 64, height: 60 },
-        { width: 340, height: 220 },
+        { width: 480, height: 220 },
         viewport,
       )?.side,
     ).toBe('below');
     expect(
       placePortTooltip(
         { x: 300, y: 730, width: 64, height: 60 },
-        { width: 340, height: 220 },
+        { width: 480, height: 220 },
         viewport,
       )?.side,
     ).toBe('above');
@@ -31,7 +31,7 @@ describe('port tooltip placement in screen coordinates', () => {
   it.each([0, 320, 950])('clamps horizontal placement at x=%i', (x) => {
     const result = placePortTooltip(
       { x, y: 400, width: 64, height: 60 },
-      { width: 340, height: 220 },
+      { width: 480, height: 220 },
       viewport,
     )!;
     expect(result.x).toBeGreaterThanOrEqual(8);
@@ -40,7 +40,7 @@ describe('port tooltip placement in screen coordinates', () => {
   it('limits long content to available space without covering the port', () => {
     const result = placePortTooltip(
       { x: 300, y: 400, width: 64, height: 60 },
-      { width: 340, height: 4000 },
+      { width: 480, height: 4000 },
       viewport,
     )!;
     expect(result.maxHeight).toBe(382);
@@ -49,7 +49,7 @@ describe('port tooltip placement in screen coordinates', () => {
   it('supports narrow and offset visual viewports', () => {
     const result = placePortTooltip(
       { x: 150, y: 260, width: 32, height: 30 },
-      { width: 340, height: 120 },
+      { width: 480, height: 120 },
       { x: 30, y: 40, width: 220, height: 400 },
     )!;
     expect(result.width).toBe(204);
@@ -60,7 +60,7 @@ describe('port tooltip placement in screen coordinates', () => {
   it('uses the side in short windows when vertical placement is unreadable', () => {
     const result = placePortTooltip(
       { x: 150, y: 25, width: 64, height: 60 },
-      { width: 340, height: 300 },
+      { width: 480, height: 300 },
       { ...viewport, height: 110 },
     )!;
     expect(result.side).toBe('right');

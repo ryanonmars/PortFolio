@@ -64,7 +64,7 @@ export function PortHoverTooltip({
         return;
       }
       element.style.width = 'max-content';
-      element.style.maxWidth = `${Math.max(1, Math.min(340, viewport.width - 16))}px`;
+      element.style.maxWidth = `${Math.max(1, Math.min(480, viewport.width - 16))}px`;
       const box = element.getBoundingClientRect();
       const placement = placePortTooltip(
         { x, y, width: right - x, height: bottom - y },
