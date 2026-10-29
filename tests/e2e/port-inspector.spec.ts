@@ -251,6 +251,10 @@ test('Port inspector clarifies independent documentation and accessible contextu
   await status.selectOption('down');
   await saved(page);
   expect((await read(page, id)).document.ports[0]!.linkState).toBe('down');
+  if (touch)
+    await inspector(page)
+      .getByRole('button', { name: 'Close inspector', exact: true })
+      .click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await saved(page);
   expect((await read(page, id)).document.ports[0]!.linkState).toBe(

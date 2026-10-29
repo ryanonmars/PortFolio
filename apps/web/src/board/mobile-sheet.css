@@ -1,0 +1,249 @@
+.board-studio.board-mobile-sheet {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: 0;
+  max-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  overflow: hidden;
+  border: 1px solid #425e4b;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: #17261d;
+  box-shadow: 0 -8px 30px #0005;
+  color: #e5eee8;
+  overscroll-behavior: contain;
+}
+.board-mobile-sheet .board-mobile-sheet-handle {
+  display: flex;
+  flex: 0 0 44px;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #91ad9a;
+  touch-action: none;
+  cursor: ns-resize;
+}
+.board-mobile-sheet-handle span {
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: currentColor;
+}
+.board-mobile-sheet .board-inspector {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  flex: 1;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  border: 0;
+  box-shadow: none;
+}
+.board-mobile-sheet .board-inspector > header {
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px 10px;
+}
+.board-mobile-sheet .board-inspector h2 {
+  margin-top: 3px;
+  font-size: 18px;
+}
+.board-mobile-sheet .board-inspector > header button {
+  flex: 0 0 44px;
+  width: 44px;
+  min-height: 44px;
+}
+.board-mobile-sheet .board-inspector-body {
+  min-width: 0;
+  padding: 12px max(14px, env(safe-area-inset-right, 0px)) 12px
+    max(14px, env(safe-area-inset-left, 0px));
+  scroll-padding-block: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.board-mobile-sheet .board-inspector > footer {
+  flex: 0 0 auto;
+  padding: 4px 14px;
+}
+.board-mobile-sheet .board-inspector :is(input, select, textarea) {
+  font-size: 16px;
+  min-height: 44px;
+}
+.board-mobile-sheet
+  .board-inspector
+  :is(input[type='checkbox'], input[type='radio']) {
+  min-height: 24px;
+  width: 24px;
+  height: 24px;
+}
+.board-mobile-sheet .board-inspector :is(input[type='color']) {
+  min-height: 44px;
+}
+.board-mobile-sheet .board-inspector label,
+.board-mobile-sheet .board-inspector-field {
+  font-size: 13px;
+  gap: 4px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.board-mobile-sheet .board-inspector .board-field-label label {
+  margin: 0;
+}
+.board-mobile-sheet .board-inspector .board-field-label {
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.board-mobile-sheet .board-inspector details {
+  margin-block: 12px;
+  padding-top: 10px;
+}
+.board-mobile-sheet .board-inspector summary {
+  min-height: 32px;
+  margin-bottom: 6px;
+}
+.board-mobile-sheet .board-inspector .board-display-field {
+  min-height: 36px;
+  margin-block: 4px;
+}
+.board-mobile-sheet .board-inspector textarea {
+  width: 100%;
+  min-height: 84px;
+}
+.board-inspector-field-pair {
+  display: contents;
+}
+.board-mobile-sheet .board-inspector-field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+}
+.board-mobile-sheet .board-inspector-field-pair > * {
+  min-width: 0;
+}
+.board-mobile-sheet .board-inspector .board-port-field-copy,
+.board-mobile-sheet .board-inspector .board-field-help-trigger {
+  flex-basis: 32px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+.board-mobile-sheet .board-custom-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px;
+}
+.board-mobile-sheet
+  .board-inspector
+  :is(button:not(.board-port-field-copy):not(.board-field-help-trigger)) {
+  min-height: 44px;
+}
+
+.board-mobile-sheet .board-field-help-popover {
+  font-size: 14px;
+}
+
+/* One chrome row preserves editing space even before Safari reports keyboard
+   bounds; the visual viewport already excludes the keyboard's safe area. */
+.board-mobile-sheet[data-keyboard='true'],
+.board-mobile-sheet[data-editing='true'] {
+  padding-bottom: 0;
+}
+.board-mobile-sheet .board-mobile-sheet-handle {
+  position: absolute;
+  top: 0;
+  left: calc(50% - 40px);
+  z-index: 2;
+  width: 80px;
+  height: 44px;
+}
+.board-mobile-sheet .board-inspector > header {
+  height: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+}
+.board-mobile-sheet .board-inspector > header > div {
+  min-width: 0;
+  max-width: calc(50% - 48px);
+}
+.board-mobile-sheet .board-inspector > header span {
+  display: none;
+}
+.board-mobile-sheet .board-inspector h2 {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+}
+.board-mobile-sheet[data-editing='true'] .board-inspector-body {
+  padding-block: 6px;
+  scroll-padding-block: 6px;
+}
+
+/* A short keyboard viewport gives editing priority over board navigation.
+   Safari can report less than one line during rotation; keep one usable row
+   at the visible top until its viewport measurements recover. */
+.board-studio.board-mobile-sheet[data-constrained='true'] {
+  z-index: 220;
+  padding-bottom: 0;
+}
+.board-studio.board-mobile-sheet[data-emergency='true'] {
+  max-height: none;
+}
+.board-mobile-sheet[data-emergency='true'] .board-mobile-sheet-handle,
+.board-mobile-sheet[data-emergency='true'] .board-inspector > header > div {
+  display: none;
+}
+.board-mobile-sheet[data-emergency='true'] .board-inspector > header {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+}
+.board-mobile-sheet[data-emergency='true'] .board-inspector > header button {
+  background: #23392b;
+  border: 1px solid #597361;
+  border-radius: 6px;
+}
+.board-mobile-sheet[data-emergency='true'] .board-inspector-body {
+  padding: 6px max(56px, env(safe-area-inset-right, 0px)) 6px
+    max(6px, env(safe-area-inset-left, 0px));
+}
+.board-mobile-sheet[data-emergency='true'] .board-inspector-field-pair,
+.board-mobile-sheet[data-emergency='true'] .board-custom-row {
+  display: contents;
+}
+.board-mobile-sheet[data-emergency='true']
+  .board-inspector
+  :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  min-height: 44px;
+  max-height: 44px;
+  height: 44px;
+  resize: none;
+}
+
+/* Secondary actions scroll with the form instead of reserving phone space. */
+.board-mobile-sheet .board-inspector-body > footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 0 0;
+  border-top: 1px solid #38503f;
+}

@@ -62,7 +62,7 @@ export interface BoardCanvasProps {
   tool: 'select' | 'pan' | 'cable' | 'ports';
   disabled: boolean;
   onChange: (document: BoardDocument, label: string) => void;
-  onSelect: (selection: BoardSelection | null) => void;
+  onSelect: (selection: BoardSelection | null, inspect?: boolean) => void;
   onGestureChange?: (active: boolean) => void;
   fitToken?: number;
   portMultiSelect?: boolean;
@@ -141,29 +141,34 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const previewRef = useRef<BoardDocument | null>(null);
   const [preview, setPreview] = useState<BoardDocument | null>(null);
   const [moving, setMoving] = useState(false);
+  const [touchControls, setTouchControls] = useState(false);
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const selectedIds =
     selection?.type === 'element' ? (selection.ids ?? [selection.id]) : [];
-  function selectIds(ids: string[]) {
-    onSelect(ids.length ? { type: 'element', id: ids[0]!, ids } : null);
+  function selectIds(ids: string[], inspect = true) {
+    onSelect(
+      ids.length ? { type: 'element', id: ids[0]!, ids } : null,
+      inspect,
+    );
   }
   function chooseElement(
     id: string,
     event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
     preserve = false,
+    inspect = true,
   ) {
     if (event.metaKey || event.ctrlKey) {
       const ids = selectedIds.includes(id)
         ? selectedIds.filter((item) => item !== id)
         : [...selectedIds, id];
-      selectIds(ids);
+      selectIds(ids, inspect);
       return ids;
     }
     const ids =
       event.shiftKey || (preserve && selectedIds.includes(id))
         ? [...new Set([...selectedIds, id])]
         : [id];
-    selectIds(ids);
+    selectIds(ids, inspect);
     return ids;
   }
   const [guides, setGuides] = useState<Guide[]>([]);
@@ -234,6 +239,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const wheelViewport = useRef<BoardViewport | null>(null);
   const lastFit = useRef(fitToken);
   const suppressClickUntil = useRef(0);
+  function cancelSummaryScroll() {
+    const active = summaryScroll.current;
+    summaryScroll.current = null;
+    if (active?.element.hasPointerCapture(active.pointer))
+      active.element.releasePointerCapture(active.pointer);
+  }
   function cancelHold() {
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdTimer.current = null;
@@ -328,6 +339,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }
   function cancelGesture() {
     cancelHold();
+    cancelSummaryScroll();
     setTouchSummary(null);
     if (gesture.current?.type === 'marquee')
       onSelect(gesture.current.selection ?? null);
@@ -417,11 +429,15 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [fitToken, document, onChange]);
   useEffect(() => {
     const active = gesture.current;
-    if (active || pinch.current) {
+    if (active || pinch.current || summaryScroll.current) {
+      cancelSummaryScroll();
       if (active?.type === 'marquee')
         latest.current.onSelect(active.selection ?? null);
       gesture.current = null;
-      for (const pointer of pointers.current.keys())
+      for (const pointer of new Set([
+        ...pointers.current.keys(),
+        ...(active ? [active.pointer] : []),
+      ]))
         if (root.current?.hasPointerCapture(pointer))
           root.current.releasePointerCapture(pointer);
       pinch.current = null;
@@ -448,11 +464,16 @@ export function BoardCanvas(props: BoardCanvasProps) {
   useEffect(() => {
     if (!disabled) return;
     const frame = requestAnimationFrame(() => {
-      if (gesture.current?.type === 'marquee')
-        latest.current.onSelect(gesture.current.selection ?? null);
+      const active = gesture.current;
+      cancelSummaryScroll();
+      if (active?.type === 'marquee')
+        latest.current.onSelect(active.selection ?? null);
       gesture.current = null;
       pinch.current = null;
-      for (const pointer of pointers.current.keys())
+      for (const pointer of new Set([
+        ...pointers.current.keys(),
+        ...(active ? [active.pointer] : []),
+      ]))
         if (root.current?.hasPointerCapture(pointer))
           root.current.releasePointerCapture(pointer);
       pointers.current.clear();
@@ -472,6 +493,10 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [rename]);
   const visible = preview ?? document;
   const viewport = visible.viewport;
+  const touchElement =
+    touchControls && selection?.type === 'element'
+      ? visible.elements.find((element) => element.id === selection.id)
+      : undefined;
   const lookups = useMemo(() => {
     const ports = new Map(visible.ports.map((port) => [port.id, port]));
     const elements = new Map(
@@ -534,7 +559,13 @@ export function BoardCanvas(props: BoardCanvasProps) {
         ? selectedIds.includes(id!)
           ? selectedIds
           : [id!]
-        : chooseElement(id!, event, true);
+        : chooseElement(
+            id!,
+            event,
+            true,
+            event.pointerType !== 'touch' &&
+              !event.currentTarget.closest('.board-touch-actions'),
+          );
       suppressClickUntil.current = event.timeStamp + 500;
     }
     gesture.current = {
@@ -551,8 +582,10 @@ export function BoardCanvas(props: BoardCanvasProps) {
       handle,
       moved: false,
     };
-    if (type === 'resize') onSelect({ type: 'element', id: id! });
-    if (type === 'port') onSelect({ type: 'port', id: id! });
+    if (type === 'resize')
+      onSelect({ type: 'element', id: id! }, event.pointerType !== 'touch');
+    if (type === 'port')
+      onSelect({ type: 'port', id: id! }, event.pointerType !== 'touch');
     onGestureChange?.(true);
   }
   function capturePointer(event: ReactPointerEvent<HTMLDivElement>) {
@@ -563,25 +596,58 @@ export function BoardCanvas(props: BoardCanvasProps) {
       return;
     suppressClickUntil.current = 0;
     lastPointerType.current = event.pointerType;
+    if (!(
+      event.target instanceof Element &&
+      event.target.closest('.board-touch-actions')
+    ))
+      setTouchControls(event.pointerType === 'touch');
     cancelHold();
     suppressHoldClick.current = null;
     setTouchSummary(null);
     dismissSummary();
     if (
+      event.pointerType === 'touch' &&
+      pointers.current.size === 0 &&
+      !disabled &&
+      tool === 'select'
+    ) {
+      const target = event.target instanceof Element ? event.target : null;
+      const container = target?.closest<HTMLElement>('[data-board-element-id]');
+      // Reading a container is selection only on touch. Ports and authored
+      // controls keep their own tap/long-press gestures.
+      if (
+        container &&
+        !target?.closest(
+          'button,input,textarea,select,[contenteditable="true"],[popover],.board-port,.board-resize-handle',
+        )
+      )
+        chooseElement(container.dataset.boardElementId!, event, true, false);
+    }
+    if (
       disabled ||
       (event.target instanceof Element &&
-        event.target.closest('input,textarea,select,.board-summary-content'))
+        event.target.closest('input,textarea,select'))
     )
       return;
     const point = local(event);
-    pointers.current.set(event.pointerId, point);
+    // This map represents simultaneous fingers only. Mouse context menus can
+    // retarget pointerup outside the canvas and must never count as a finger.
+    if (event.pointerType === 'touch')
+      pointers.current.set(event.pointerId, point);
     if (event.pointerType === 'touch' && pointers.current.size === 2) {
       event.preventDefault();
-      root.current?.setPointerCapture(event.pointerId);
+      // Summary reading owns one-finger scrolling; a second finger yields
+      // both pointers to canvas navigation instead of retaining its capture.
+      summaryScroll.current = null;
+      for (const pointer of pointers.current.keys())
+        root.current?.setPointerCapture(pointer);
       const [a, b] = [...pointers.current.values()];
       gesture.current = null;
       suppressClickUntil.current = event.timeStamp + 500;
       setMoving(false);
+      // A second finger promotes the gesture to navigation. Discard any
+      // uncommitted container move while preserving the current viewport.
+      showPreview({ ...document, viewport: visible.viewport });
       pinch.current = {
         distance: Math.hypot(b!.x - a!.x, b!.y - a!.y),
         viewport: visible.viewport,
@@ -1178,6 +1244,14 @@ export function BoardCanvas(props: BoardCanvasProps) {
         onPointerDown={(event) => {
           if (type === 'element') {
             if (
+              event.pointerType === 'touch' &&
+              tool !== 'pan' &&
+              !root.current?.classList.contains('space-pan')
+            ) {
+              event.stopPropagation();
+              return;
+            }
+            if (
               tool === 'pan' ||
               root.current?.classList.contains('space-pan') ||
               event.button === 1
@@ -1201,8 +1275,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
         }}
         onClick={(event) => {
           event.stopPropagation();
-          // Names are direct editing controls. Opening the mobile inspector
-          // on the first click covers the label before a double-click arrives.
+          if (type === 'element' && lastPointerType.current === 'touch') {
+            if (!disabled && tool === 'select')
+              chooseElement(id, event, true, false);
+            return;
+          }
+          // Mouse and keyboard retain direct name editing.
           if (!disabled && tool !== 'pan') {
             finishViewport();
             setRename({ type, id, value: name });
@@ -1210,6 +1288,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
         }}
         onDoubleClick={(event) => {
           event.stopPropagation();
+          if (type === 'element' && lastPointerType.current === 'touch') return;
           if (!disabled) {
             finishViewport();
             setRename({ type, id, value: name });
@@ -1424,12 +1503,18 @@ export function BoardCanvas(props: BoardCanvasProps) {
                     event.button === 1
                   )
                     begin(event, 'pan');
-                  else if (tool === 'select') begin(event, 'move', element.id);
+                  else if (tool === 'select' && event.pointerType !== 'touch')
+                    begin(event, 'move', element.id);
                 }}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (!disabled && tool === 'select')
-                    chooseElement(element.id, event, true);
+                    chooseElement(
+                      element.id,
+                      event,
+                      true,
+                      lastPointerType.current !== 'touch',
+                    );
                 }}
               >
                 <header
@@ -1441,7 +1526,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
                       event.button === 1
                     )
                       begin(event, 'pan');
-                    else if (tool !== 'cable') begin(event, 'move', element.id);
+                    else if (tool !== 'cable' && event.pointerType !== 'touch')
+                      begin(event, 'move', element.id);
                   }}
                 >
                   {element.type === 'device' ? (
@@ -1841,15 +1927,16 @@ export function BoardCanvas(props: BoardCanvasProps) {
                     onPointerMove={(event) => {
                       const scroll = summaryScroll.current;
                       if (!scroll || scroll.pointer !== event.pointerId) return;
+                      if (pointers.current.has(event.pointerId))
+                        pointers.current.set(event.pointerId, local(event));
                       event.stopPropagation();
                       scroll.element.scrollTop =
                         scroll.top + (scroll.y - event.clientY) / viewport.zoom;
                     }}
                     onPointerUp={(event) => {
-                      if (summaryScroll.current?.pointer === event.pointerId) {
+                      if (summaryScroll.current?.pointer === event.pointerId)
                         summaryScroll.current = null;
-                        event.stopPropagation();
-                      }
+                      // Let the canvas retire this finger from its touch map.
                     }}
                     onPointerCancel={() => {
                       summaryScroll.current = null;
@@ -2024,6 +2111,47 @@ export function BoardCanvas(props: BoardCanvasProps) {
           )}
         </svg>
       </div>
+      {touchElement && !disabled && tool === 'select' && !rename && (
+        <div
+          className="board-touch-actions"
+          role="group"
+          aria-label="Selected container actions"
+          style={{
+            left: `clamp(8px, ${viewport.x + touchElement.x * viewport.zoom}px, calc(100% - 108px))`,
+            top: `clamp(8px, ${viewport.y + (touchElement.y + touchElement.height) * viewport.zoom + 8}px, calc(100% - 56px))`,
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="board-touch-move"
+            aria-label={
+              selectedIds.length > 1
+                ? 'Move selected objects'
+                : `Move ${touchElement.name}`
+            }
+            title="Drag to move"
+            onPointerDown={(event) => begin(event, 'move', touchElement.id)}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span aria-hidden="true">⠿</span>
+          </button>
+          {selectedIds.length === 1 && (
+            <button
+              type="button"
+              aria-label={`Configure ${touchElement.name}`}
+              title="Configure"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect({ type: 'element', id: touchElement.id }, true);
+              }}
+            >
+              <span aria-hidden="true">⚙</span>
+            </button>
+          )}
+        </div>
+      )}
       {summaryPort && (
         <PortHoverTooltip
           id={summaryId}

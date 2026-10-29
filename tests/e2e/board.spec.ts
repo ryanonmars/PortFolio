@@ -49,10 +49,13 @@ async function browser(page: Page) {
     await page
       .getByRole('button', { name: 'Open board browser', exact: true })
       .click();
-  return page.getByRole('complementary', {
-    name: 'Board browser',
-    exact: true,
-  });
+  return page.getByRole(
+    test.info().project.use.isMobile ? 'dialog' : 'complementary',
+    {
+      name: 'Board browser',
+      exact: true,
+    },
+  );
 }
 async function saved(page: Page) {
   // Fit commits its measured viewport on the next frame; observe that change

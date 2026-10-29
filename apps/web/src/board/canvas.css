@@ -456,3 +456,39 @@
 .board-canvas.is-moving * {
   cursor: grabbing !important;
 }
+
+/* Touch actions stay in screen space so canvas zoom never shrinks the targets. */
+.board-touch-actions {
+  position: absolute;
+  z-index: 100005;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #4f6958;
+  border-radius: 8px;
+  background: #192b20;
+  box-shadow: 0 4px 12px #0005;
+  touch-action: none;
+  pointer-events: none;
+}
+.board-touch-actions button {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #dce9e0;
+  font-size: 23px;
+  line-height: 1;
+}
+.board-touch-actions button:active {
+  background: #34533f;
+}
+.board-touch-move {
+  cursor: grab;
+}

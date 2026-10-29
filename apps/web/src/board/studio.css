@@ -666,3 +666,276 @@
   padding: 2px 6px;
   font-size: 11px;
 }
+
+.board-dialog > header,
+.board-dialog form > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.board-dialog header > button {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+}
+.board-browser-backdrop,
+.board-dock-backdrop {
+  display: none;
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .board-studio-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .board-main,
+  .board-editor,
+  .board-editor .board-canvas {
+    min-height: 0;
+    min-width: 0;
+  }
+  .board-appbar {
+    position: relative;
+    z-index: 180;
+    height: calc(56px + env(safe-area-inset-top, 0px));
+    box-sizing: border-box;
+    padding: env(safe-area-inset-top, 0px)
+      max(8px, env(safe-area-inset-right, 0px)) 0
+      max(8px, env(safe-area-inset-left, 0px));
+    gap: 6px;
+    background: #0c140f;
+  }
+  .board-appbar button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .board-appbar .board-title {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .board-appbar > span {
+    display: none;
+  }
+  .board-browser-backdrop,
+  .board-dock-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: #03080566;
+  }
+  .board-browser-backdrop {
+    z-index: 190;
+  }
+  .board-browser {
+    position: fixed;
+    z-index: 200;
+    top: var(--mobile-top, 0px);
+    left: var(--mobile-left, 0px);
+    bottom: auto;
+    width: min(320px, calc(var(--mobile-vw, 100vw) - 32px));
+    height: var(--mobile-vh, 100dvh);
+    box-sizing: border-box;
+    padding: max(10px, env(safe-area-inset-top, 0px)) 14px
+      max(10px, env(safe-area-inset-bottom, 0px));
+    gap: 10px;
+    overflow-y: auto;
+    box-shadow: 10px 0 30px #0007;
+  }
+  .board-browser :is(button, summary),
+  .board-browser input[type='search'] {
+    min-height: 44px;
+  }
+  .board-browser header,
+  .board-browser-heading,
+  .board-browser footer {
+    flex-shrink: 0;
+  }
+  .board-group > summary {
+    flex-wrap: wrap;
+  }
+  .board-dock-backdrop {
+    z-index: 45;
+  }
+  .equipment-dock {
+    position: fixed;
+    top: calc(var(--mobile-top, 0px) + env(safe-area-inset-top, 0px) + 128px);
+    left: calc(
+      var(--mobile-left, 0px) + max(8px, env(safe-area-inset-left, 0px))
+    );
+    width: calc(var(--mobile-vw, 100vw) - 16px);
+    max-width: 420px;
+    max-height: calc(
+      var(--mobile-vh, 100dvh) - env(safe-area-inset-top, 0px) - 144px
+    );
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 10px;
+    z-index: 50;
+  }
+  .equipment-dock :is(button, header) {
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+  .equipment-dock header {
+    position: sticky;
+    top: -10px;
+    background: #19291f;
+  }
+  .board-studio :is(input, select, textarea),
+  .board-dialog :is(input, select, textarea),
+  .board-studio .board-browser input[type='search'] {
+    font-size: 16px;
+  }
+  .board-studio :is(input, select):not([type='checkbox']):not([type='radio']) {
+    min-height: 44px;
+  }
+  .board-studio textarea {
+    min-height: 84px;
+  }
+  .board-dialog {
+    position: fixed;
+    inset: auto;
+    top: calc(var(--mobile-top, 0px) + 8px);
+    left: calc(var(--mobile-left, 0px) + 8px);
+    width: calc(var(--mobile-vw, 100vw) - 16px);
+    max-width: none;
+    max-height: calc(var(--mobile-vh, 100dvh) - 16px);
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .board-dialog[open],
+  .board-dialog form {
+    display: flex;
+    flex-direction: column;
+  }
+  .board-dialog form {
+    min-height: 0;
+    max-height: inherit;
+  }
+  .board-dialog > header,
+  .board-dialog form > header,
+  .board-dialog footer {
+    flex-shrink: 0;
+    padding: 10px max(14px, env(safe-area-inset-right, 0px)) 10px
+      max(14px, env(safe-area-inset-left, 0px));
+    margin: 0;
+  }
+  .board-dialog header {
+    border-bottom: 1px solid #38503f;
+    align-items: center;
+  }
+  .board-dialog h2 {
+    margin: 0;
+    font-size: 20px;
+    overflow-wrap: anywhere;
+  }
+  .board-dialog .board-dialog-body {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 14px;
+  }
+  .board-dialog label {
+    margin-bottom: 10px;
+  }
+  .board-dialog footer {
+    border-top: 1px solid #38503f;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+  .board-dialog button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .board-dialog footer button {
+    flex: 1;
+  }
+  .board-auth {
+    padding-top: max(24px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  /* One scroll surface keeps board rows reachable in short landscape drawers. */
+  .board-browser nav {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .board-browser header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #101a14;
+  }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .board-auth .form :is(input, textarea, select) {
+    font-size: 16px;
+    min-height: 44px;
+  }
+}
+
+/* Preserve the existing creation form when Safari briefly reports less than
+   one usable field during keyboard rotation. Native dialog modality remains. */
+@media (max-width: 760px), (pointer: coarse) {
+  [data-cramped-dialog='true'] .board-name-dialog {
+    top: var(--mobile-top, 0px);
+    left: var(--mobile-left, 0px);
+    width: var(--mobile-vw, 100vw);
+    height: 56px;
+    max-height: none;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog form {
+    position: relative;
+    height: 100%;
+    max-height: none;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog header,
+  [data-cramped-dialog='true'] .board-name-dialog footer {
+    position: absolute;
+    top: 6px;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog header {
+    right: 6px;
+    width: 44px;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog footer {
+    right: 56px;
+    width: 112px;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog h2,
+  [data-cramped-dialog='true'] .board-name-dialog footer [type='button'] {
+    display: none;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog .board-dialog-body {
+    padding: 6px 174px 6px 6px;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog label {
+    display: block;
+    margin: 0;
+    font-size: 0;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog input {
+    height: 44px;
+    font-size: 16px;
+  }
+  [data-cramped-dialog='true'] .board-name-dialog button {
+    height: 44px;
+    padding: 4px 6px;
+    white-space: nowrap;
+  }
+}

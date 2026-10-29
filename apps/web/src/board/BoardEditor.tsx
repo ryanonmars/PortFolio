@@ -17,6 +17,8 @@ import {
 import { api } from '../api.js';
 import { BoardCanvas, type BoardSelection } from './BoardCanvas.js';
 import { BoardInspector } from './BoardInspector.js';
+import { MobileSheet } from './MobileSheet.js';
+import { useMobileLayout } from './use-mobile-layout.js';
 import { BoardSession } from './session.js';
 import { PortContextMenu } from './PortContextMenu.js';
 import {
@@ -34,6 +36,7 @@ export interface BoardEditorHandle {
   flush: () => Promise<void>;
   setLocked: (locked: boolean) => void;
   canTransition: () => boolean;
+  dismissOverlays: () => void;
 }
 export const BoardEditor = forwardRef<
   BoardEditorHandle,
@@ -50,6 +53,8 @@ export const BoardEditor = forwardRef<
   ref,
 ) {
   const [, redraw] = useState(0);
+  const mobile = useMobileLayout();
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const externalLock = useRef(false);
   const [locked, setLockedState] = useState(false);
   const reloadToken = useRef<number | null>(null);
@@ -98,8 +103,13 @@ export const BoardEditor = forwardRef<
   const [clipboardFeedback, setClipboardFeedback] = useState<{
     text: string;
   } | null>(null);
-  function selectObject(next: BoardSelection | null) {
+  function selectObject(next: BoardSelection | null, inspect = true) {
     setSelection(next);
+    setInspectorOpen(Boolean(next) && inspect);
+    if (next && inspect && mobile) {
+      setDock(false);
+      setTypes(false);
+    }
     setInspectPort(true);
     if (next?.type !== 'port') {
       setPortMultiSelect(false);
@@ -149,6 +159,13 @@ export const BoardEditor = forwardRef<
         setLockedState(value);
       },
       canTransition: () => !gestureRef.current && reloadToken.current === null,
+      dismissOverlays: () => {
+        setInspectorOpen(false);
+        setDock(false);
+        setTypes(false);
+        setPortMenu(null);
+        setClipboardFeedback(null);
+      },
     }),
     [session],
   );
@@ -200,7 +217,7 @@ export const BoardEditor = forwardRef<
   function closePortMenu(restoreFocus = true) {
     const id = portMenu?.portId;
     setPortMenu(null);
-    if (restoreFocus && id)
+    if (restoreFocus && id && !portMenu?.touch)
       requestAnimationFrame(() =>
         surface.current
           ?.querySelector<HTMLButtonElement>(
@@ -482,6 +499,60 @@ export const BoardEditor = forwardRef<
       }
     }
   }
+  function closeInspector(restoreFocus = false) {
+    if (mobile) {
+      setInspectorOpen(false);
+      if (restoreFocus)
+        requestAnimationFrame(() => {
+          const target =
+            selection?.type === 'port'
+              ? surface.current?.querySelector<HTMLButtonElement>(
+                  `button[data-port-id="${CSS.escape(selection.id)}"]`,
+                )
+              : surface.current?.querySelector<HTMLButtonElement>(
+                  '.board-touch-actions button[aria-label^="Configure "]',
+                );
+          (
+            target ??
+            surface.current?.querySelector<HTMLElement>('.board-canvas')
+          )?.focus({ preventScroll: true });
+        });
+    } else selectObject(null);
+  }
+  const inspectorContent =
+    selection?.type === 'element' && (selection.ids?.length ?? 1) > 1 ? (
+      <aside className="board-inspector" aria-label="Object inspector">
+        <header>
+          <h2>{selection.ids!.length} objects selected</h2>
+          <button
+            aria-label="Close inspector"
+            onClick={(event) => closeInspector(event.detail === 0)}
+          >
+            ×
+          </button>
+        </header>
+      </aside>
+    ) : (
+      selection &&
+      !(
+        selection.type === 'port' &&
+        (portMenu ||
+          !inspectPort ||
+          portMultiSelect ||
+          (selection.ids?.length ?? 1) > 1)
+      ) && (
+        <BoardInspector
+          key={`${selection.type}:${selection.id}`}
+          document={document}
+          selection={selection}
+          onChange={change}
+          onClose={closeInspector}
+          onDelete={remove}
+          onDuplicate={duplicate}
+          onCopyPortField={copyField}
+        />
+      )
+    );
   const inactive = disabled || locked || reloading;
   return (
     <section
@@ -502,7 +573,14 @@ export const BoardEditor = forwardRef<
           className="primary"
           aria-label="Add object"
           aria-expanded={dock}
-          onClick={() => setDock(!dock)}
+          onClick={() => {
+            if (!dock) {
+              if (mobile) setInspectorOpen(false);
+              setPortMenu(null);
+              setTypes(false);
+            }
+            setDock(!dock);
+          }}
         >
           ＋ Add
         </button>
@@ -721,6 +799,13 @@ export const BoardEditor = forwardRef<
           <button onClick={() => setTool('select')}>Cancel</button>
         </div>
       )}
+      {mobile && dock && (
+        <button
+          className="board-dock-backdrop"
+          aria-label="Dismiss Equipment Dock"
+          onClick={() => setDock(false)}
+        />
+      )}
       {dock && (
         <div
           className="equipment-dock"
@@ -728,7 +813,16 @@ export const BoardEditor = forwardRef<
           aria-label="Equipment Dock"
         >
           <header>
-            Add
+            {types ? (
+              <button
+                aria-label="Back to equipment types"
+                onClick={() => setTypes(false)}
+              >
+                ‹ Back
+              </button>
+            ) : (
+              'Add'
+            )}
             <button
               aria-label="Close Equipment Dock"
               onClick={() => setDock(false)}
@@ -786,39 +880,18 @@ export const BoardEditor = forwardRef<
         onGestureChange={updateGesture}
         fitToken={fitToken}
       />
-      {selection?.type === 'element' && (selection.ids?.length ?? 1) > 1 ? (
-        <aside className="board-inspector" aria-label="Object inspector">
-          <header>
-            <h2>{selection.ids!.length} objects selected</h2>
-            <button
-              aria-label="Close inspector"
-              onClick={() => selectObject(null)}
-            >
-              ×
-            </button>
-          </header>
-        </aside>
-      ) : (
-        selection &&
-        !(
-          selection.type === 'port' &&
-          (portMenu ||
-            !inspectPort ||
-            portMultiSelect ||
-            (selection.ids?.length ?? 1) > 1)
-        ) && (
-          <BoardInspector
-            key={`${selection.type}:${selection.id}`}
-            document={document}
-            selection={selection}
-            onChange={change}
-            onClose={() => selectObject(null)}
-            onDelete={remove}
-            onDuplicate={duplicate}
-            onCopyPortField={copyField}
-          />
-        )
-      )}
+      {inspectorOpen &&
+        (!mobile || !gesture) &&
+        (!mobile || !inactive) &&
+        (!mobile || !dock) &&
+        inspectorContent &&
+        (mobile ? (
+          <MobileSheet label="Object inspector" onClose={closeInspector}>
+            {inspectorContent}
+          </MobileSheet>
+        ) : (
+          inspectorContent
+        ))}
       {!inactive &&
         selection?.type === 'port' &&
         (portMultiSelect || (selection.ids?.length ?? 1) > 1) && (

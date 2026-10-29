@@ -26,6 +26,7 @@ import {
   deviceHeaderFieldOrder,
   type DeviceHeaderFieldKey,
 } from './device-header-fields.js';
+import { useMobileLayout } from './use-mobile-layout.js';
 import { FieldHelp } from './FieldHelp.js';
 import {
   knownLinkStatus,
@@ -39,7 +40,7 @@ type Props = {
   document: BoardDocument;
   selection: BoardSelection;
   onChange: (doc: BoardDocument, label: string) => void;
-  onClose: () => void;
+  onClose: (restoreFocus?: boolean) => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onCopyPortField?: (
@@ -72,6 +73,7 @@ export function BoardInspector({
   onDuplicate,
   onCopyPortField,
 }: Props) {
+  const mobile = useMobileLayout();
   const [error, setError] = useState('');
   const fieldPrefix = useId();
   const element = document.elements.find((item) => item.id === selection.id);
@@ -293,7 +295,7 @@ export function BoardInspector({
     update: (value: string) => void,
   ) {
     return (
-      <label>
+      <label key={label}>
         {label}
         <textarea
           aria-label={label}
@@ -333,6 +335,14 @@ export function BoardInspector({
       : [];
   const updateEntries = (next: Record<string, JsonValue>[]) =>
     property('entries', next);
+  const actions = (
+    <footer>
+      {element && <button onClick={onDuplicate}>Duplicate</button>}
+      <button className="danger" onClick={onDelete}>
+        Delete {element?.type ?? (port ? 'port' : 'cable')}
+      </button>
+    </footer>
+  );
   return (
     <aside className="board-inspector" aria-label="Object inspector">
       <header>
@@ -340,7 +350,10 @@ export function BoardInspector({
           <span>{element?.type ?? (port ? 'Port' : 'Cable')}</span>
           <h2>{title}</h2>
         </div>
-        <button aria-label="Close inspector" onClick={onClose}>
+        <button
+          aria-label="Close inspector"
+          onClick={(event) => onClose(event.detail === 0)}
+        >
           ×
         </button>
       </header>
@@ -398,18 +411,20 @@ export function BoardInspector({
                   String(element.properties.deviceType ?? ''),
                   (value) => property('deviceType', value),
                 )}
-                {['Manufacturer', 'Model', 'Management address'].map(
-                  (label) => {
-                    const key =
-                      label === 'Management address'
-                        ? 'managementAddress'
-                        : label.toLowerCase();
+                <div className="board-inspector-field-pair">
+                  {['Manufacturer', 'Model'].map((label) => {
+                    const key = label.toLowerCase();
                     return input(
                       label,
                       String(element.properties[key] ?? ''),
                       (value) => property(key, value),
                     );
-                  },
+                  })}
+                </div>
+                {input(
+                  'Management address',
+                  String(element.properties.managementAddress ?? ''),
+                  (value) => property('managementAddress', value),
                 )}
                 <details className="board-device-visible-fields">
                   <summary>Visible Fields</summary>
@@ -632,7 +647,7 @@ export function BoardInspector({
                         </span>
                       </label>
                       {entry.dhcpServer === true && (
-                        <>
+                        <div className="board-inspector-field-pair">
                           {input(
                             'DHCP pool start',
                             String(entry.dhcpStart ?? ''),
@@ -643,7 +658,7 @@ export function BoardInspector({
                             String(entry.dhcpEnd ?? ''),
                             (value) => update('dhcpEnd', value),
                           )}
-                        </>
+                        </div>
                       )}
                       {input('DNS servers', String(entry.dns ?? ''), (value) =>
                         update('dns', value),
@@ -737,18 +752,20 @@ export function BoardInspector({
                 ))}
               </select>
             ))}
-            {portInput(
-              'Port Purpose',
-              port.role,
-              (role) => changePort({ role }, 'role'),
-              purposeSuggestions,
-            )}
-            {portInput(
-              'Speed',
-              port.speed,
-              (speed) => changePort({ speed }, 'speed'),
-              speedSuggestions,
-            )}
+            <div className="board-inspector-field-pair">
+              {portInput(
+                'Port Purpose',
+                port.role,
+                (role) => changePort({ role }, 'role'),
+                purposeSuggestions,
+              )}
+              {portInput(
+                'Speed',
+                port.speed,
+                (speed) => changePort({ speed }, 'speed'),
+                speedSuggestions,
+              )}
+            </div>
             {helpedField('Link Status', (id, helpId) => (
               <select
                 id={id}
@@ -909,7 +926,8 @@ export function BoardInspector({
                   Notes: 'notes',
                 } as const
               )[label as 'Name'];
-              return input(label, cable[key], (value) =>
+              const render = mobile && label === 'Notes' ? notes : input;
+              return render(label, cable[key], (value) =>
                 onChange(
                   {
                     ...document,
@@ -990,13 +1008,9 @@ export function BoardInspector({
             ))}
           </>
         )}
+        {mobile && actions}
       </div>
-      <footer>
-        {element && <button onClick={onDuplicate}>Duplicate</button>}
-        <button className="danger" onClick={onDelete}>
-          Delete {element?.type ?? (port ? 'port' : 'cable')}
-        </button>
-      </footer>
+      {!mobile && actions}
     </aside>
   );
 }

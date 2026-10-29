@@ -707,6 +707,42 @@ test('touch background drag preserves panning and port inspection', async ({
     touchPoints: [],
   });
   await saved(page);
+  expect((await read(page, initial.id)).document.elements).toEqual(
+    after.elements,
+  );
+  await expect(object(page, 'router')).toHaveAttribute('data-selected', 'true');
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
+  const handle = (await page
+    .getByRole('button', { name: 'Move Router', exact: true })
+    .boundingBox())!;
+  const handleStart = {
+    x: handle.x + handle.width / 2,
+    y: handle.y + handle.height / 2,
+  };
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    modifiers: 1,
+    touchPoints: [handleStart],
+  });
+  for (let step = 1; step <= 6; step++)
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      modifiers: 1,
+      touchPoints: [
+        {
+          x: handleStart.x + (14 * step) / 6,
+          y: handleStart.y + (7 * step) / 6,
+        },
+      ],
+    });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    modifiers: 1,
+    touchPoints: [],
+  });
+  await saved(page);
   expectTranslation(
     after,
     (await read(page, initial.id)).document,
@@ -801,7 +837,7 @@ test('narrow devices keep body and actual title drag targets usable at half, nor
   }
 });
 
-test('touch background navigation keeps low-zoom title double-click and tap editing open', async ({
+test('touch background navigation keeps mouse title editing and deliberate touch configuration', async ({
   page,
   context,
 }, info) => {
@@ -843,21 +879,38 @@ test('touch background navigation keeps low-zoom title double-click and tap edit
   expect(positions(after)).toEqual(positions(before));
   expect(after.ports).toEqual(before.ports);
   await object(page, 'router').locator('.board-element-name').tap();
-  await expect(input).toBeVisible();
+  await expect(input).toHaveCount(0);
   await expect(
     page.getByRole('complementary', { name: 'Object inspector', exact: true }),
   ).toHaveCount(0);
-  await page.screenshot({
-    path: info.outputPath('low-zoom-mobile-title-editor.png'),
+  await expect(object(page, 'router')).toHaveAttribute('data-selected', 'true');
+  await page
+    .getByRole('button', {
+      name: 'Configure Double-click renamed',
+      exact: true,
+    })
+    .tap();
+  const configuration = page.getByRole('complementary', {
+    name: 'Object inspector',
+    exact: true,
   });
-  await input.fill('Tapped name');
-  await input.press('Enter');
+  await expect(configuration).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath('low-zoom-mobile-title-configuration.png'),
+  });
+  await configuration.getByLabel('Name', { exact: true }).fill('Tapped name');
+  await configuration
+    .getByRole('button', { name: 'Close inspector', exact: true })
+    .click();
   await saved(page);
   after = (await read(page, initial.id)).document;
   expect(after.elements[0]!.name).toBe('Tapped name');
   expect(positions(after)).toEqual(positions(before));
   expect(after.ports).toEqual(before.ports);
-  const start = await labelPoint(page, 'router'),
+  const handle = (await page
+      .getByRole('button', { name: 'Move Tapped name', exact: true })
+      .boundingBox())!,
+    start = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 },
     client = await context.newCDPSession(page);
   await client.send('Input.dispatchTouchEvent', {
     type: 'touchStart',

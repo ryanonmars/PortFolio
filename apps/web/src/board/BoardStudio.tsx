@@ -1,9 +1,11 @@
 import {
   useEffect,
   useEffectEvent,
+  useCallback,
   useRef,
   useState,
   type FormEvent,
+  type CSSProperties,
 } from 'react';
 import {
   application,
@@ -19,6 +21,7 @@ import { api, sessionRequest } from '../api.js';
 import { AuthForm } from '../forms.js';
 import { BoardEditor, type BoardEditorHandle } from './BoardEditor.js';
 import type { PortClipboard } from './port-clipboard.js';
+import { useMobileLayout, useVisualViewport } from './use-mobile-layout.js';
 import './studio.css';
 
 type NameDialog = {
@@ -28,6 +31,16 @@ type NameDialog = {
 };
 type ImportData = ReturnType<typeof boardImportSchema.parse>;
 export function BoardStudio() {
+  const mobile = useMobileLayout();
+  const viewport = useVisualViewport();
+  const mobileViewportStyle = {
+    '--mobile-vh': `${viewport.height}px`,
+    '--mobile-vw': `${viewport.width}px`,
+    '--mobile-top': `${viewport.top}px`,
+    '--mobile-left': `${viewport.left}px`,
+  } as CSSProperties;
+  const browser = useRef<HTMLElement>(null);
+  const explorerTrigger = useRef<HTMLButtonElement>(null);
   const [portClipboard, setPortClipboard] = useState<PortClipboard | null>(
     null,
   );
@@ -38,7 +51,9 @@ export function BoardStudio() {
   const [groups, setGroups] = useState<BoardGroup[]>([]);
   const [active, setActive] = useState<BoardRecord | null>(null);
   const [epoch, setEpoch] = useState(0);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(
+    () => window.matchMedia('(max-width: 760px), (pointer: coarse)').matches,
+  );
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -46,6 +61,65 @@ export function BoardStudio() {
   const [importData, setImportData] = useState<ImportData | null>(null);
   const editor = useRef<BoardEditorHandle>(null);
   const file = useRef<HTMLInputElement>(null);
+  function showNameDialog(value: NameDialog) {
+    if (mobile) {
+      editor.current?.dismissOverlays();
+      setCollapsed(true);
+    }
+    setNameDialog(value);
+  }
+  const closeBrowser = useCallback(() => {
+    setCollapsed(true);
+    requestAnimationFrame(() =>
+      explorerTrigger.current?.focus({ preventScroll: true }),
+    );
+  }, []);
+  function toggleBrowser() {
+    if (mobile && !editor.current?.canTransition() && editor.current) return;
+    if (mobile && collapsed) editor.current?.dismissOverlays();
+    setCollapsed(!collapsed);
+  }
+  useEffect(() => {
+    if (!mobile || collapsed) return;
+    const pane = browser.current;
+    pane
+      ?.querySelector<HTMLButtonElement>('button')
+      ?.focus({ preventScroll: true });
+    const keyboard = (event: KeyboardEvent) => {
+      if (globalThis.document.querySelector('dialog[open]')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeBrowser();
+      } else if (event.key === 'Tab') {
+        const targets = [
+          ...(pane?.querySelectorAll<HTMLElement>(
+            'button,input,select,summary,[tabindex="0"]',
+          ) ?? []),
+        ].filter(
+          (item) =>
+            !item.closest('[inert]') &&
+            item.getClientRects().length &&
+            !item.hasAttribute('disabled'),
+        );
+        const first = targets[0],
+          last = targets.at(-1);
+        if (event.shiftKey && globalThis.document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (
+          !event.shiftKey &&
+          globalThis.document.activeElement === last
+        ) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    globalThis.document.addEventListener('keydown', keyboard, true);
+    return () =>
+      globalThis.document.removeEventListener('keydown', keyboard, true);
+  }, [mobile, collapsed, closeBrowser]);
   const activeRef = useRef<BoardRecord | null>(null);
   const request = useRef(0);
   function updatePortClipboard(value: PortClipboard | null) {
@@ -101,7 +175,7 @@ export function BoardStudio() {
     activeRef.current = board;
     setActive(board);
     setEpoch((value) => value + 1);
-    setCollapsed(window.innerWidth < 760);
+    setCollapsed(mobile);
     if (push) window.history.pushState(null, '', `/boards/${board.id}`);
     else window.history.replaceState(null, '', `/boards/${board.id}`);
   }
@@ -451,6 +525,10 @@ export function BoardStudio() {
       const parsed = boardImportSchema.safeParse(value);
       if (!parsed.success)
         throw new Error('This is not a valid PortFolio board file');
+      if (mobile) {
+        editor.current?.dismissOverlays();
+        setCollapsed(true);
+      }
       setImportData(parsed.data);
     } catch (cause) {
       if (alive.current && generation === request.current)
@@ -499,7 +577,7 @@ export function BoardStudio() {
           aria-current={active?.id === board.id ? 'page' : undefined}
           onClick={() => void open(board.id)}
           onDoubleClick={() =>
-            setNameDialog({ type: 'board', id: board.id, name: board.name })
+            showNameDialog({ type: 'board', id: board.id, name: board.name })
           }
         >
           {board.name}
@@ -518,7 +596,11 @@ export function BoardStudio() {
           <div>
             <button
               onClick={() =>
-                setNameDialog({ type: 'board', id: board.id, name: board.name })
+                showNameDialog({
+                  type: 'board',
+                  id: board.id,
+                  name: board.name,
+                })
               }
             >
               Rename board
@@ -571,22 +653,36 @@ export function BoardStudio() {
   );
   if ((!user || loading) && !active) return auth;
   return (
-    <div className={`board-studio ${collapsed ? 'browser-collapsed' : ''}`}>
+    <div
+      className={`board-studio ${mobile ? 'is-mobile' : ''} ${collapsed ? 'browser-collapsed' : ''}`}
+      style={mobileViewportStyle}
+      data-cramped-dialog={mobile && viewport.height < 44 * 3 + 6 * 8}
+    >
       <div
         className="board-studio-layout"
         inert={!user || busy}
         aria-busy={busy}
       >
-        <aside className="board-browser" aria-label="Board browser">
+        {mobile && !collapsed && (
+          <button
+            className="board-browser-backdrop"
+            aria-label="Close Explorer"
+            onClick={closeBrowser}
+          />
+        )}
+        <aside
+          ref={browser}
+          className="board-browser"
+          aria-label="Board browser"
+          role={mobile ? 'dialog' : undefined}
+          aria-modal={mobile && !collapsed ? true : undefined}
+        >
           <header>
             <strong className="board-brand">
               <BrandMark />
               PortFolio
             </strong>
-            <button
-              aria-label="Collapse board browser"
-              onClick={() => setCollapsed(true)}
-            >
+            <button aria-label="Collapse board browser" onClick={closeBrowser}>
               ‹
             </button>
           </header>
@@ -601,7 +697,7 @@ export function BoardStudio() {
             <span>Boards</span>
             <button
               aria-label="Add board"
-              onClick={() => setNameDialog({ type: 'new-board', name: '' })}
+              onClick={() => showNameDialog({ type: 'new-board', name: '' })}
             >
               ＋
             </button>
@@ -616,7 +712,7 @@ export function BoardStudio() {
                     aria-label={`Rename group ${group.name}`}
                     onClick={(event) => {
                       event.preventDefault();
-                      setNameDialog({
+                      showNameDialog({
                         type: 'group',
                         id: group.id,
                         name: group.name,
@@ -648,7 +744,7 @@ export function BoardStudio() {
           )}
           <footer>
             <button
-              onClick={() => setNameDialog({ type: 'new-group', name: '' })}
+              onClick={() => showNameDialog({ type: 'new-group', name: '' })}
             >
               Add group
             </button>
@@ -665,11 +761,13 @@ export function BoardStudio() {
             <button onClick={() => void logout()}>Sign out</button>
           </footer>
         </aside>
-        <main className="board-main">
+        <main className="board-main" inert={mobile && !collapsed}>
           <header className="board-appbar">
             <button
+              ref={explorerTrigger}
               aria-label="Open board browser"
-              onClick={() => setCollapsed(!collapsed)}
+              aria-expanded={!collapsed}
+              onClick={toggleBrowser}
             >
               ☰
             </button>
@@ -678,7 +776,7 @@ export function BoardStudio() {
                 className="board-title"
                 aria-label="Rename current board"
                 onDoubleClick={() =>
-                  setNameDialog({
+                  showNameDialog({
                     type: 'board',
                     id: active.id,
                     name: active.name,
@@ -692,7 +790,7 @@ export function BoardStudio() {
             {collapsed && (
               <button
                 aria-label="Add board"
-                onClick={() => setNameDialog({ type: 'new-board', name: '' })}
+                onClick={() => showNameDialog({ type: 'new-board', name: '' })}
               >
                 ＋
               </button>
@@ -711,7 +809,12 @@ export function BoardStudio() {
               key={`${active.id}:${epoch}`}
               ref={editor}
               board={active}
-              disabled={busy || !user}
+              disabled={
+                busy ||
+                !user ||
+                (mobile &&
+                  (!collapsed || Boolean(nameDialog) || Boolean(importData)))
+              }
               clipboard={portClipboard}
               onClipboardChange={updatePortClipboard}
               onImport={() => file.current?.click()}
@@ -721,7 +824,7 @@ export function BoardStudio() {
             <div className="board-empty">
               <p>No board selected.</p>
               <button
-                onClick={() => setNameDialog({ type: 'new-board', name: '' })}
+                onClick={() => showNameDialog({ type: 'new-board', name: '' })}
               >
                 Add board
               </button>
@@ -786,6 +889,7 @@ function NameForm({
   const [pending, setPending] = useState(false);
   useEffect(() => {
     ref.current?.showModal();
+    ref.current?.querySelector<HTMLInputElement>('input')?.focus();
   }, []);
   const isBoard = value.type === 'board' || value.type === 'new-board';
   const creating = value.type.startsWith('new');
@@ -802,7 +906,7 @@ function NameForm({
   }
   return (
     <dialog
-      className="board-dialog"
+      className="board-dialog board-name-dialog"
       ref={ref}
       aria-label={
         creating
@@ -815,21 +919,33 @@ function NameForm({
       }}
     >
       <form onSubmit={(event) => void submit(event)}>
-        <h2>
-          {creating ? 'New' : 'Rename'} {isBoard ? 'board' : 'group'}
-        </h2>
-        <label>
-          {isBoard ? 'Board name' : 'Group name'}
-          <input
-            aria-label={isBoard ? 'Board name' : 'Group name'}
-            name="name"
-            defaultValue={value.name}
-            required
-            maxLength={240}
-            autoFocus
-          />
-        </label>
-        {error && <p role="alert">{error}</p>}
+        <header>
+          <h2>
+            {creating ? 'New' : 'Rename'} {isBoard ? 'board' : 'group'}
+          </h2>
+          <button
+            type="button"
+            aria-label="Close dialog"
+            disabled={pending}
+            onClick={onCancel}
+          >
+            ×
+          </button>
+        </header>
+        <div className="board-dialog-body">
+          <label>
+            {isBoard ? 'Board name' : 'Group name'}
+            <input
+              aria-label={isBoard ? 'Board name' : 'Group name'}
+              name="name"
+              defaultValue={value.name}
+              required
+              maxLength={240}
+              autoFocus
+            />
+          </label>
+          {error && <p role="alert">{error}</p>}
+        </div>
         <footer>
           <button type="button" disabled={pending} onClick={onCancel}>
             Cancel
@@ -867,11 +983,22 @@ function ImportPreview({
         if (!disabled) onCancel();
       }}
     >
-      <h2>{data.name}</h2>
-      <p>
-        {data.document.elements.length} objects · {data.document.ports.length}{' '}
-        ports · {data.document.cables.length} cables
-      </p>
+      <header>
+        <h2>{data.name}</h2>
+        <button
+          aria-label="Close dialog"
+          disabled={disabled}
+          onClick={onCancel}
+        >
+          ×
+        </button>
+      </header>
+      <div className="board-dialog-body">
+        <p>
+          {data.document.elements.length} objects · {data.document.ports.length}{' '}
+          ports · {data.document.cables.length} cables
+        </p>
+      </div>
       <footer>
         <button disabled={disabled} onClick={onCancel}>
           Cancel
