@@ -139,6 +139,11 @@ export function BoardCanvas(props: BoardCanvasProps) {
     top: number;
     element: HTMLElement;
   } | null>(null);
+  const configureTouch = useRef<{
+    pointer: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const previewRef = useRef<BoardDocument | null>(null);
   const [preview, setPreview] = useState<BoardDocument | null>(null);
   const [moving, setMoving] = useState(false);
@@ -2143,7 +2148,46 @@ export function BoardCanvas(props: BoardCanvasProps) {
               type="button"
               aria-label={`Configure ${touchElement.name}`}
               title="Configure"
-              onPointerDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                configureTouch.current =
+                  event.pointerType === 'touch' && event.button === 0
+                    ? {
+                        pointer: event.pointerId,
+                        x: event.clientX,
+                        y: event.clientY,
+                      }
+                    : null;
+              }}
+              onPointerMove={(event) => {
+                const start = configureTouch.current;
+                if (
+                  start?.pointer === event.pointerId &&
+                  Math.hypot(event.clientX - start.x, event.clientY - start.y) >
+                    8
+                )
+                  configureTouch.current = null;
+              }}
+              onPointerCancel={() => {
+                configureTouch.current = null;
+              }}
+              onPointerUp={(event) => {
+                const start = configureTouch.current;
+                configureTouch.current = null;
+                // Chromium can suppress the next compatibility click after a
+                // sheet swipe. A completed tap still activates this action.
+                if (
+                  start?.pointer === event.pointerId &&
+                  Math.hypot(
+                    event.clientX - start.x,
+                    event.clientY - start.y,
+                  ) <= 8 &&
+                  !gesture.current &&
+                  !pinch.current
+                )
+                  onSelect({ type: 'element', id: touchElement.id }, true);
+                // Let the canvas remove this finger from its pointer map.
+              }}
               onClick={(event) => {
                 event.stopPropagation();
                 onSelect({ type: 'element', id: touchElement.id }, true);
