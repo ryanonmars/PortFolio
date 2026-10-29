@@ -17,6 +17,9 @@ jobs:
     if: github.repository == 'ryanonmars/PortFolio'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,17 +46,29 @@ jobs:
           if (tags[0] !== tag) throw new Error('An older stable tag cannot replace latest');
           NODE
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-
-  validation:
-    name: Release validation
-    needs: revision
-    uses: ./.github/workflows/ci.yaml
-    permissions:
-      contents: read
+      - name: Require passing main CI for this exact commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_COMMIT="$(git rev-parse HEAD)"
+          export RELEASE_COMMIT
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yaml/runs" \
+            -f head_sha="$RELEASE_COMMIT" -f branch=main -f event=push -f per_page=1 \
+            > /tmp/portfolio-ci.json
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const run = JSON.parse(readFileSync('/tmp/portfolio-ci.json', 'utf8')).workflow_runs?.[0];
+          if (!run || run.head_sha !== process.env.RELEASE_COMMIT ||
+              run.head_branch !== 'main' || run.event !== 'push' ||
+              run.status !== 'completed' || run.conclusion !== 'success') {
+            throw new Error('The latest main CI run for this exact release commit must complete successfully before publishing');
+          }
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Verified main CI: ${run.html_url}\n`);
+          NODE
 
   publish:
     name: Publish verified amd64 and arm64 images
-    needs: [revision, validation]
+    needs: revision
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
