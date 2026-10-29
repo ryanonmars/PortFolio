@@ -4,6 +4,7 @@ services:
     image: ghcr.io/ryanonmars/portfolio:local
     build: .
     init: true
+    user: '${PUID:-1000}:${PGID:-1000}'
     environment:
       PUBLIC_ORIGIN:
       LOCAL_ORIGIN:

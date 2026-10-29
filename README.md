@@ -12,9 +12,9 @@ docker compose up -d --build
 
 Open `http://localhost:3088`, the server's private IP address, or a local hostname such as `http://dockge.truenas:3088`. Create the administrator account; there are no default credentials. Direct HTTP LAN access needs no origin configuration. Compose publishes port 3088 on all host interfaces and stores persistent data in `./data`. Set `BIND_ADDRESS=127.0.0.1` for loopback-only publishing. The container runs without root, with a read-only filesystem and dropped capabilities. Local builds use `ghcr.io/ryanonmars/portfolio:local`.
 
-Automatic LAN host handling is an unreleased source change after `v0.1.0`. The published `v0.1.0` image retains its explicit-origin policy until a new image release is published.
+The default runtime identity is `1000:1000`. Set optional `PUID` and `PGID` in Compose’s `.env` to use different numeric IDs. Use positive, nonzero IDs; no matching named user or group is needed on the host. Direct `docker run` deployments can use the standard `--user UID:GID` option.
 
-On Linux, create the data directory before startup with ownership for container UID/GID 1000:
+On Linux, create the data directory before startup with ownership for the selected UID/GID (default shown):
 
 ```sh
 sudo install -d -m 0700 -o 1000 -g 1000 data
@@ -22,21 +22,23 @@ sudo install -d -m 0700 -o 1000 -g 1000 data
 
 ## TrueNAS SCALE / Dockge
 
-Use [deployment/compose.yaml](deployment/compose.yaml) and [deployment/.env.example](deployment/.env.example); this deployment pulls the published image and requires no source checkout or GitHub credentials once the package is public. Put the Compose stack and its `.env` in `/mnt/tank/stacks/portfolio`. In Dockge, paste that Compose file and set the environment values. Create the persistent directory first:
+Use [deployment/compose.yaml](deployment/compose.yaml) and [deployment/.env.example](deployment/.env.example); this deployment pulls the published image and requires no source checkout or GitHub credentials once the package is public. Put the Compose stack and its `.env` in `/mnt/tank/stacks/portfolio`. In Dockge, paste that Compose file and set the environment values. For the TrueNAS `apps` identity, set `PUID=568` and `PGID=568` in `.env`, then create the persistent directory with those IDs:
 
 ```sh
-sudo install -d -m 0700 -o 1000 -g 1000 /mnt/tank/configs/portfolio
+sudo install -d -m 0700 -o 568 -g 568 /mnt/tank/configs/portfolio
 ```
 
-On TrueNAS datasets with managed ACLs, grant UID/GID 1000 access through the dataset ACL instead of replacing existing permissions. Keep application data separate from the stack folder. The bind mount deliberately refuses to create a missing data directory.
+On TrueNAS datasets with managed ACLs, grant the selected UID/GID access through the dataset ACL instead of replacing existing permissions. Keep application data separate from the stack folder. The bind mount deliberately refuses to create a missing data directory.
 
 Open the server's LAN IP or local hostname and create the administrator account. No `PUBLIC_ORIGIN` setting or reverse proxy is required for basic HTTP LAN access. Docker listens on internal port 3088 and persists SQLite and backups under `/data`.
 
-The deployment file currently pins published `v0.1.0`, which still requires `PUBLIC_ORIGIN` set to your exact LAN URL. The automatic behavior above applies to a build of the updated source until the next image release.
+The persistent directory and existing database, journal/WAL and backup files must be readable and writable by the selected identity. Before changing an existing deployment’s IDs, stop the application, back up its data and arrange the required ownership or ACL access yourself. The container never changes ownership or broadens permissions automatically; incorrect access causes startup or recovery to fail. Application files remain read-only, and the read-only root filesystem, dropped capabilities and `no-new-privileges` protections apply to every identity. Existing deployments that omit these settings retain `1000:1000`.
 
 | Variable          | Default                       | Purpose                                                                                                      |
 | ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `IMAGE_TAG`       | `v0.1.0`                      | Published version; pin production deployments. `latest` follows stable releases.                             |
+| `IMAGE_TAG`       | `v0.1.1`                      | Published version; pin production deployments. `latest` follows stable releases.                             |
+| `PUID`            | `1000`                        | Non-root numeric runtime user ID; use `568` for the TrueNAS apps identity.                                   |
+| `PGID`            | `1000`                        | Non-root numeric runtime group ID; use `568` with TrueNAS apps.                                              |
 | `PORT`            | `3088`                        | Published host port; internal port remains 3088.                                                             |
 | `BIND_ADDRESS`    | `0.0.0.0`                     | Host interfaces; use `127.0.0.1` for local access only.                                                      |
 | `DATA_PATH`       | `/mnt/tank/configs/portfolio` | Existing writable host directory mounted at `/data`.                                                         |
@@ -64,8 +66,8 @@ Migrations run at startup. Keep the previous image tag and backup; rolling back 
 The published image supports Linux amd64 and arm64. Verify public pulls without cached Docker credentials:
 
 ```sh
-docker --config /path/to/empty-docker-config pull ghcr.io/ryanonmars/portfolio:v0.1.0
-docker buildx imagetools inspect ghcr.io/ryanonmars/portfolio:v0.1.0
+docker --config /path/to/empty-docker-config pull ghcr.io/ryanonmars/portfolio:v0.1.1
+docker buildx imagetools inspect ghcr.io/ryanonmars/portfolio:v0.1.1
 ```
 
 The source repository remains private. If package visibility needs setup, open the `portfolio` package under the GitHub account's Packages, choose Package settings, remove inherited repository access if required while retaining the repository under Manage Actions access, and change the package visibility to Public. Public visibility must be verified with an anonymous pull, not assumed from an authenticated one.
@@ -105,7 +107,7 @@ DATA_DIR=/path/to/new-empty-data pnpm db:restore /path/to/snapshot.sqlite
 
 Backups contain private documentation and account/session data. Keep them private.
 
-For production, copy backups out of `/data/backups` to a separate protected location. To restore on Docker, stop the service, prepare a new empty host directory owned by UID/GID 1000, and run the same pinned image against that directory:
+For production, copy backups out of `/data/backups` to a separate protected location. To restore on Docker, stop the service, prepare a new empty host directory writable by the configured `PUID`/`PGID` (default `1000:1000`), and run the same pinned image against that directory:
 
 ```sh
 docker compose stop

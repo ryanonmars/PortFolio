@@ -1,8 +1,9 @@
 name: portfolio
 services:
   portfolio:
-    image: ghcr.io/ryanonmars/portfolio:${IMAGE_TAG:-v0.1.0}
+    image: ghcr.io/ryanonmars/portfolio:${IMAGE_TAG:-v0.1.1}
     init: true
+    user: '${PUID:-1000}:${PGID:-1000}'
     environment:
       PUBLIC_ORIGIN:
       LOCAL_ORIGIN:

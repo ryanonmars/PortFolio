@@ -52,20 +52,5 @@ jobs:
           if-no-files-found: ignore
       - name: Build production container
         run: docker compose build
-      - name: Validate the non-root container and persistent database
-        env:
-          BIND_ADDRESS: 127.0.0.1
-          PORT: '3101'
-          PUBLIC_ORIGIN: http://127.0.0.1:3101
-        run: |
-          sudo install -d -m 700 -o 1000 -g 1000 data
-          docker compose up -d --wait --wait-timeout 90
-          test "$(docker compose exec -T portfolio id -u)" = 1000
-          curl --fail --silent http://127.0.0.1:3101/healthz
-          docker compose exec -T portfolio node dist/scripts/database.js migrate
-          docker compose exec -T portfolio node dist/scripts/database.js backup /data/backups/ci.sqlite
-          docker compose up -d --force-recreate --wait --wait-timeout 90
-          docker compose exec -T portfolio test -s /data/backups/ci.sqlite
-      - name: Stop the trial container
-        if: always()
-        run: docker compose down
+      - name: Validate numeric container identities, permissions and upgrades
+        run: node scripts/test-container-identity.js ghcr.io/ryanonmars/portfolio:local
