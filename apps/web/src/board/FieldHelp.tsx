@@ -12,9 +12,11 @@ export function FieldHelp({
   id,
   label,
   children,
+  triggerLabel,
 }: {
   id: string;
   label: string;
+  triggerLabel?: string;
   children: ReactNode;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
@@ -143,7 +145,7 @@ export function FieldHelp({
         ref={trigger}
         type="button"
         className="board-field-help-trigger"
-        aria-label={`Help for ${label}`}
+        aria-label={triggerLabel ?? `Help for ${label}`}
         aria-describedby={id}
         aria-expanded={open}
         aria-controls={id}

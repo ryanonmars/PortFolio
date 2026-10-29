@@ -7,6 +7,8 @@ import {
   deviceHeaderFields,
   deviceHeaderFieldOrder,
   fitDeviceHeaderFields,
+  DEVICE_HEADER_CHIP_HEIGHT,
+  DEVICE_HEADER_CHIP_GAP,
 } from './device-header-fields.js';
 import { makeBoardPort } from './commands.js';
 import { cableCurve, getPortPoint, portRect } from './geometry.js';
@@ -125,12 +127,23 @@ describe('fixed-header display preferences and fitting', () => {
     expect(deviceHeaderFields(element, 0)[0]!.value).toBe('0');
   });
 
+  it('fits complete router information at natural widths without a fixed cap', () => {
+    const sizes = [{ ideal: 172 }, { ideal: 126 }, { ideal: 264 }];
+    expect(fitDeviceHeaderFields(sizes, 766)).toEqual([
+      { index: 0, x: 0, y: 0, width: 172 },
+      { index: 1, x: 180, y: 0, width: 126 },
+      { index: 2, x: 314, y: 0, width: 264 },
+    ]);
+    expect(DEVICE_HEADER_CHIP_HEIGHT).toBe(32);
+    expect(DEVICE_HEADER_CHIP_GAP).toBe(8);
+  });
+
   it.each([0, 126, 286, 766])(
-    'fits a priority prefix into two rows at logical width %s without overflow',
+    'fits a complete priority prefix in one row at logical width %s',
     (width) => {
       const sizes = Array.from({ length: 30 }, (_, index) => ({
-        ideal: 400 + index,
-        minimum: 100,
+        ideal: 100 + index * 10,
+        minimum: 1,
       }));
       const before = JSON.stringify(sizes);
       const fitted = fitDeviceHeaderFields(sizes, width);
@@ -140,31 +153,67 @@ describe('fixed-header display preferences and fitting', () => {
       for (const item of fitted) {
         expect(item.x).toBeGreaterThanOrEqual(0);
         expect(item.x + item.width).toBeLessThanOrEqual(width);
-        expect(item.y + 16).toBeLessThanOrEqual(35);
-        expect(item.width).toBeLessThanOrEqual(200);
+        expect(item.y).toBe(0);
+        expect(item.width).toBe(sizes[item.index]!.ideal);
       }
       expect(JSON.stringify(sizes)).toBe(before);
     },
   );
 
-  it('hides lower-priority fields rather than squeezing a third row or skipping higher priorities', () => {
+  it('shows only complete pills in medium headers and none when the first field cannot fit', () => {
+    const sizes = [{ ideal: 172 }, { ideal: 126 }, { ideal: 264 }];
+    expect(fitDeviceHeaderFields(sizes, 306)).toHaveLength(2);
+    expect(fitDeviceHeaderFields(sizes, 305.9)).toHaveLength(1);
+    expect(fitDeviceHeaderFields(sizes, 171)).toEqual([]);
+    expect(
+      fitDeviceHeaderFields(sizes, 306 - 32 - DEVICE_HEADER_CHIP_GAP),
+    ).toEqual([{ index: 0, x: 0, y: 0, width: 172 }]);
+  });
+
+  it('never shrinks a long field, starts another row, or skips a higher-priority field', () => {
     expect(
       fitDeviceHeaderFields(
         [
-          { ideal: 900, minimum: 100 },
-          { ideal: 900, minimum: 100 },
-          { ideal: 20, minimum: 20 },
+          { ideal: 900, minimum: 1 },
+          { ideal: 20, minimum: 1 },
         ],
-        126,
+        766,
+        2,
       ),
-    ).toEqual([
-      { index: 0, x: 0, y: 0, width: 126 },
-      { index: 1, x: 0, y: 19, width: 126 },
-    ]);
-    expect(
-      fitDeviceHeaderFields([{ ideal: 100, minimum: 50 }], 126, 0),
     ).toEqual([]);
+    expect(fitDeviceHeaderFields([{ ideal: 900 }], 1000)).toEqual([
+      { index: 0, x: 0, y: 0, width: 900 },
+    ]);
+    expect(fitDeviceHeaderFields([{ ideal: 100 }], 126, 0)).toEqual([]);
   });
+
+  it('uses exact fractional measurements and restores the same layout after narrowing', () => {
+    const sizes = [{ ideal: 100.25 }, { ideal: 50.5 }];
+    const wide = fitDeviceHeaderFields(sizes, 158.75);
+    expect(wide).toEqual([
+      { index: 0, x: 0, y: 0, width: 100.25 },
+      { index: 1, x: 108.25, y: 0, width: 50.5 },
+    ]);
+    expect(fitDeviceHeaderFields(sizes, 158.74)).toHaveLength(1);
+    expect(fitDeviceHeaderFields(sizes, 99)).toEqual([]);
+    expect(fitDeviceHeaderFields(sizes, 158.75)).toEqual(wide);
+  });
+
+  it.each([NaN, Infinity, -1])(
+    'rejects unusable placement width %s',
+    (width) => {
+      expect(fitDeviceHeaderFields([{ ideal: 100 }], width)).toEqual([]);
+    },
+  );
+
+  it.each([NaN, Infinity, 0, -1])(
+    'does not place an invalid natural measurement %s',
+    (ideal) => {
+      expect(fitDeviceHeaderFields([{ ideal }, { ideal: 20 }], 766)).toEqual(
+        [],
+      );
+    },
+  );
 
   it('keeps canonical dimensions, ports and simple cable geometry unchanged through presentation changes', () => {
     const peer = { ...device, id: 'peer', x: 1100, y: 400 };

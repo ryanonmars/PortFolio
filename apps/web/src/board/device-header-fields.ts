@@ -12,40 +12,24 @@ export type DeviceHeaderPlacement = {
   y: number;
   width: number;
 };
-export const DEVICE_HEADER_CHIP_HEIGHT = 16;
-export const DEVICE_HEADER_CHIP_GAP = 3;
+export const DEVICE_HEADER_CHIP_HEIGHT = 32;
+export const DEVICE_HEADER_CHIP_GAP = 8;
 
-/** A priority prefix only: fitting cannot resize or write to a board object. */
+/** A complete priority prefix only; overflow belongs in the information popover. */
 export function fitDeviceHeaderFields(
-  measurements: { ideal: number; minimum: number }[],
+  measurements: { ideal: number; minimum?: number }[],
   width: number,
-  rows = 2,
+  rows = 1,
 ): DeviceHeaderPlacement[] {
+  if (!Number.isFinite(width) || width <= 0 || rows <= 0) return [];
   const result: DeviceHeaderPlacement[] = [];
-  let row = 0,
-    cursor = 0;
-  for (
-    let index = 0;
-    index < measurements.length && width > 0 && rows > 0;
-    index++
-  ) {
-    const item = measurements[index]!;
-    const minimum = Math.min(width, Math.max(1, item.minimum));
-    const ideal = Math.max(minimum, Math.min(200, item.ideal));
-    let x = cursor ? cursor + DEVICE_HEADER_CHIP_GAP : 0;
-    if (width - x < minimum) {
-      row++;
-      x = 0;
-    }
-    if (row >= Math.min(2, rows)) break;
-    const fitted = Math.min(ideal, width - x);
-    result.push({
-      index,
-      x,
-      y: row * (DEVICE_HEADER_CHIP_HEIGHT + DEVICE_HEADER_CHIP_GAP),
-      width: fitted,
-    });
-    cursor = x + fitted;
+  let cursor = 0;
+  for (let index = 0; index < measurements.length; index++) {
+    const natural = measurements[index]!.ideal;
+    const x = cursor + (result.length ? DEVICE_HEADER_CHIP_GAP : 0);
+    if (!Number.isFinite(natural) || natural <= 0 || x + natural > width) break;
+    result.push({ index, x, y: 0, width: natural });
+    cursor = x + natural;
   }
   return result;
 }

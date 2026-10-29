@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import {
   emptyBoardDocument,
   type BoardPort,
@@ -166,7 +167,7 @@ function port(
   };
 }
 
-test('device header information fits a fixed eighty-pixel header without changing device or port geometry', async ({
+test('device headers display complete natural pills or accessible overflow without moving physical ports', async ({
   page,
 }, info) => {
   test.setTimeout(180_000);
@@ -197,7 +198,7 @@ test('device header information fits a fixed eighty-pixel header without changin
     {
       id: deviceId,
       type: 'device',
-      name: 'Core Router with a long editable name',
+      name: 'ER8411 Router',
       x: 40,
       y: 100,
       width: 800,
@@ -206,16 +207,12 @@ test('device header information fits a fixed eighty-pixel header without changin
       color: '#24332b',
       properties: {
         face: 'front',
-        manufacturer:
-          'Manufacturer International Research and Infrastructure Systems '.repeat(
-            3,
-          ),
-        model: 'Long Model ' + 'ABC123-'.repeat(15),
-        managementAddress:
-          '2001:db8:' + 'abcd:'.repeat(20) + '64 / router.management.example',
-        deviceType: 'Custom routed documentation appliance',
+        manufacturer: 'TP-Link',
+        model: 'ER8411',
+        managementAddress: '192.168.0.1',
+        deviceType: 'Router',
         notes:
-          'Authored device notes remain available in the inspector.\nSecond line.',
+          'Authored device notes remain complete in the information popover.',
         customFields: {
           Capacity: 0,
           Monitored: false,
@@ -264,7 +261,7 @@ test('device header information fits a fixed eighty-pixel header without changin
       Origin: new URL(page.url()).origin,
       'x-csrf-token': auth.csrfToken,
     },
-    data: { name: 'Fixed header ' + randomUUID().slice(0, 8), document },
+    data: { name: 'Readable header ' + randomUUID().slice(0, 8), document },
   });
   expect(response.status()).toBe(201);
   const id = (await response.json()).board.id as string;
@@ -274,41 +271,209 @@ test('device header information fits a fixed eighty-pixel header without changin
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
   await saved(page);
   const device = page.locator(`[data-board-element-id="${deviceId}"]`);
-  const peer = page.locator(`[data-board-element-id="${peerId}"]`);
+  const chips = device.locator('.board-device-info-chip');
+  const icon = device.getByRole('button', {
+    name: 'Device information',
+    exact: true,
+  });
   const cable = page.locator(
     `[data-board-cable-id="${document.cables[0]!.id}"] .board-cable-line`,
   );
-  const initialGeometry = await bounds(device);
-  const initialPath = await cable.getAttribute('d');
+  const initial = await bounds(device),
+    initialCable = await cable.getAttribute('d');
   const original = await read(page, id);
-  await contained(device);
-  await expect(
-    device.locator('.board-device-info-chip[data-field="manufacturer"]'),
-  ).toBeVisible();
-  await expect(
-    device.locator('.board-device-info-chip[data-field="model"]'),
-  ).toBeVisible();
-  await expect(
-    device.locator('.board-device-info-chip[data-field="managementAddress"]'),
-  ).toBeVisible();
-  await expect(
-    device.locator('.board-device-info-chip[data-field="manufacturer"]'),
-  ).toHaveAttribute(
-    'title',
-    `Manufacturer: ${document.elements[0]!.properties.manufacturer}`,
+  await mkdir('.tmp/qa-media/device-header-layout', { recursive: true });
+  async function screenshot(name: string) {
+    await page.screenshot({
+      path: `.tmp/qa-media/device-header-layout/${info.project.name}-${name}.png`,
+    });
+  }
+  async function completePills() {
+    const sizes = await chips.evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        height: (node as HTMLElement).offsetHeight,
+        clipped: [
+          ...node.querySelectorAll<HTMLElement>(
+            '.board-device-info-label,.board-device-info-value',
+          ),
+        ].some((child) => child.scrollWidth > child.clientWidth + 1),
+      })),
+    );
+    for (const size of sizes) {
+      expect(size.height).toBe(32);
+      expect(size.clipped).toBe(false);
+    }
+    await contained(device);
+  }
+  async function unchangedGeometry() {
+    const current = await bounds(device);
+    expect(current.headerHeight).toBe(80);
+    expect(current.height).toBe(initial.height);
+    expect(current.ports).toEqual(initial.ports);
+    await expect(cable).toHaveAttribute('d', initialCable!);
+    const stored = await read(page, id);
+    expect(stored.document.ports).toEqual(original.document.ports);
+    expect(stored.document.cables).toEqual(original.document.cables);
+  }
+  async function resize(
+    width: number,
+    properties: Record<string, string> = {},
+  ) {
+    await closeInspector(page);
+    const current = await read(page, id);
+    const changed = structuredClone(current.document);
+    const element = changed.elements.find((item) => item.id === deviceId)!;
+    element.width = width;
+    Object.assign(element.properties, properties);
+    const update = await page.request.patch(`/api/v1/boards/${id}`, {
+      headers: {
+        Origin: new URL(page.url()).origin,
+        'x-csrf-token': auth.csrfToken,
+      },
+      data: { rowVersion: current.rowVersion, document: changed },
+    });
+    expect(update.status()).toBe(200);
+    await page.reload();
+    await saved(page);
+    await collapseBrowser(page);
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await saved(page);
+    await unchangedGeometry();
+  }
+  async function popup() {
+    const target = await icon.getAttribute('aria-controls');
+    expect(target).toBeTruthy();
+    return page.locator(`[id="${target}"]`);
+  }
+  async function popupWithinViewport() {
+    const panel = await popup();
+    await expect(panel).toBeVisible();
+    const visible = await panel.evaluate((node) => {
+      const box = node.getBoundingClientRect(),
+        viewport = window.visualViewport;
+      const left = viewport?.offsetLeft ?? 0,
+        top = viewport?.offsetTop ?? 0;
+      return (
+        box.left >= left &&
+        box.top >= top &&
+        box.right <= left + (viewport?.width ?? innerWidth) + 1 &&
+        box.bottom <= top + (viewport?.height ?? innerHeight) + 1
+      );
+    });
+    expect(visible).toBe(true);
+    return panel;
+  }
+  async function wide() {
+    await expect(chips).toHaveCount(3);
+    for (const [field, value] of [
+      ['manufacturer', 'TP-Link'],
+      ['model', 'ER8411'],
+      ['managementAddress', '192.168.0.1'],
+    ])
+      await expect(
+        device.locator(
+          `.board-device-info-chip[data-field="${field}"] .board-device-info-value`,
+        ),
+      ).toHaveText(value!);
+    await expect(icon).toHaveCount(0);
+    await completePills();
+    await unchangedGeometry();
+  }
+  await wide();
+  await screenshot('wide-800');
+  // Real resize actions must refit the mounted header without a reload.
+  await select(page, device);
+  const resizeHandle = device.getByRole('button', {
+    name: 'Resize ER8411 Router e',
+    exact: true,
+  });
+  for (let step = 0; step < 16; step++)
+    await resizeHandle.press('Shift+ArrowLeft');
+  await saved(page);
+  await expect(chips).toHaveCount(0);
+  await expect(icon).toBeVisible();
+  await unchangedGeometry();
+  for (let step = 0; step < 16; step++)
+    await resizeHandle.press('Shift+ArrowRight');
+  await saved(page);
+  await closeInspector(page);
+  await wide();
+  await resize(1200);
+  await wide();
+  await screenshot('wide-1200');
+  await resize(360);
+  await expect(icon).toBeVisible();
+  const shown = await chips.evaluateAll((nodes) =>
+    nodes.map((node) => (node as HTMLElement).dataset.field),
   );
-  await expect(
-    device.locator(
-      '.board-device-info-chip[data-field="model"] .board-device-info-value',
-    ),
-  ).toHaveCSS('text-overflow', 'ellipsis');
-  expect(
-    await device
-      .locator(
-        '.board-device-info-chip[data-field="model"] .board-device-info-value',
-      )
-      .evaluate((node) => node.scrollWidth > node.clientWidth),
-  ).toBe(true);
+  expect(shown.length).toBeGreaterThan(0);
+  expect(shown.length).toBeLessThan(3);
+  expect(shown).toEqual(
+    ['manufacturer', 'model', 'managementAddress'].slice(0, shown.length),
+  );
+  await completePills();
+  await icon.click();
+  let panel = await popupWithinViewport();
+  const fullFields = [
+    ['manufacturer', 'TP-Link'],
+    ['model', 'ER8411'],
+    ['managementAddress', '192.168.0.1'],
+  ];
+  for (const [field, value] of fullFields) {
+    if (shown.includes(field)) await expect(panel).not.toContainText(value!);
+    else await expect(panel).toContainText(value!);
+  }
+  await screenshot('medium-popover');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await resize(160);
+  // Read-only information must isolate canvas/editor keyboard shortcuts.
+  await select(page, device);
+  const beforeInformation = await read(page, id);
+  await icon.focus();
+  await icon.press('Space');
+  await expect(icon).toHaveAttribute('aria-expanded', 'true');
+  await icon.press('Space');
+  await expect(icon).toHaveAttribute('aria-expanded', 'false');
+  await icon.press('Space');
+  await expect(icon).toHaveAttribute('aria-expanded', 'true');
+  for (const key of [
+    'ArrowLeft',
+    'ArrowRight',
+    'ArrowUp',
+    'ArrowDown',
+    'Delete',
+    'Backspace',
+  ])
+    await icon.press(key);
+  await expect(page.locator('.board-canvas')).not.toHaveClass(/space-pan/);
+  expect(await read(page, id)).toEqual(beforeInformation);
+  await page.keyboard.press('Escape');
+  await expect(await popup()).toBeHidden();
+  await closeInspector(page);
+  await expect(chips).toHaveCount(0);
+  await expect(icon).toBeVisible();
+  await contained(device);
+  await icon.focus();
+  panel = await popupWithinViewport();
+  for (const value of ['TP-Link', 'ER8411', '192.168.0.1'])
+    await expect(panel).toContainText(value);
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  if (info.project.name.startsWith('desktop')) {
+    await icon.hover();
+    await popupWithinViewport();
+    await page.keyboard.press('Escape');
+  }
+  await icon.click();
+  panel = await popupWithinViewport();
+  await screenshot('narrow-popover');
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await expect(panel).toBeHidden();
+  await saved(page);
+  await unchangedGeometry();
+  await resize(800);
+  await wide();
   await select(page, device);
   let fields = await visibleFields(page);
   for (const name of fieldNames)
@@ -325,47 +490,18 @@ test('device header information fits a fixed eighty-pixel header without changin
       .getByRole('checkbox', { name: `Show header ${name}`, exact: true })
       .uncheck();
   await saved(page);
-  expect(await bounds(device)).toEqual(initialGeometry);
-  await expect(device.locator('.board-device-info-chip')).toHaveCount(0);
-  await expect(cable).toHaveAttribute('d', initialPath!);
-  await closeInspector(page);
-  await page.screenshot({ path: info.outputPath('device-header-none.png') });
-  await select(page, device);
-  fields = await visibleFields(page);
+  await expect(chips).toHaveCount(0);
+  await expect(icon).toHaveCount(0);
+  await unchangedGeometry();
   for (const name of fieldNames)
     await fields
       .getByRole('checkbox', { name: `Show header ${name}`, exact: true })
       .check();
-  await saved(page);
-  expect(await bounds(device)).toEqual(initialGeometry);
-  await contained(device);
-  await expect(cable).toHaveAttribute('d', initialPath!);
-  let current = await read(page, id);
-  expect(current.document.ports).toEqual(original.document.ports);
-  expect(current.document.cables).toEqual(original.document.cables);
-  expect(current.document.elements[1]).toEqual(original.document.elements[1]);
-  expect(current.document.elements[0]).toMatchObject({
-    x: 40,
-    y: 100,
-    width: 800,
-    height: 340,
-  });
-  // Change priority without changing any physical data.
-  for (let i = 0; i < 6; i++)
+  for (let index = 0; index < 6; index++)
     await fields
       .getByRole('button', { name: 'Move Custom Fields earlier', exact: true })
       .click();
   await saved(page);
-  await expect(
-    device.locator(
-      '.board-device-info-chip[data-field="customFields.Capacity"]',
-    ),
-  ).toContainText('0');
-  await expect(
-    device.locator(
-      '.board-device-info-chip[data-field="customFields.Monitored"]',
-    ),
-  ).toContainText('false');
   expect(
     (await read(page, id)).document.elements[0]!.properties.headerFields,
   ).toEqual([
@@ -378,76 +514,79 @@ test('device header information fits a fixed eighty-pixel header without changin
     'notes',
   ]);
   await closeInspector(page);
-  await contained(device);
-  await page.screenshot({
-    path: info.outputPath('device-header-all-wide.png'),
-  });
-  // User resizing changes only the container dimensions, never occupied slots.
-  await select(page, device);
-  const resize = page.getByRole('button', {
-    name: 'Resize Core Router with a long editable name e',
-    exact: true,
-  });
-  for (let i = 0; i < 16; i++) await resize.press('Alt+Shift+ArrowLeft');
-  await saved(page);
-  current = await read(page, id);
-  expect(current.document.elements[0]!.width).toBe(160);
-  expect(current.document.elements[0]!.height).toBe(340);
-  expect(current.document.ports).toEqual(original.document.ports);
-  expect(current.document.cables).toEqual(original.document.cables);
-  await closeInspector(page);
-  await page.getByRole('button', { name: 'Fit', exact: true }).click();
-  await saved(page);
-  await contained(device);
-  const narrowGeometry = await bounds(device);
-  expect(narrowGeometry.headerHeight).toBe(80);
-  expect(
-    await device
-      .locator('.board-element-name')
-      .evaluate((node) => (node as HTMLElement).offsetWidth),
-  ).toBeGreaterThanOrEqual(120);
-  expect(narrowGeometry.ports).toEqual(initialGeometry.ports);
-  await expect(device.locator('.board-element-name')).toBeVisible();
-  expect(await device.locator('.board-device-info-chip').count()).toBeLessThan(
-    8,
+  await expect(chips.first()).toHaveAttribute(
+    'data-field',
+    'customFields.Capacity',
   );
-  expect(
-    await device
-      .locator('.board-device-info-chip')
-      .first()
-      .getAttribute('data-field'),
-  ).toBe('customFields.Capacity');
+  await expect(chips.first()).toContainText('0');
   await expect(
-    device.locator('.board-device-info-chip[data-field="manufacturer"]'),
-  ).toHaveCount(0);
-  await page.screenshot({
-    path: info.outputPath('device-header-all-narrow.png'),
-  });
-  const narrowSaved = await read(page, id);
+    device.locator(
+      '.board-device-info-chip[data-field="customFields.Monitored"]',
+    ),
+  ).toContainText('false');
+  await completePills();
+  await unchangedGeometry();
+  await screenshot('all-fields-priority');
+  const longManufacturer =
+    'Manufacturer International Research and Infrastructure Systems '.repeat(3);
+  const longModel = 'Long Model ' + 'ABC123-'.repeat(15);
+  await resize(800, { manufacturer: longManufacturer, model: longModel });
+  await expect(icon).toBeVisible();
+  await completePills();
+  await icon.click();
+  panel = await popupWithinViewport();
+  await expect(panel).toContainText(longManufacturer.trim());
+  await expect(panel).toContainText(longModel);
+  await screenshot('long-values');
+  if (info.project.name.startsWith('desktop')) {
+    await page.keyboard.press('Escape');
+    await resize(800, {
+      notes: 'Full device notes remain independently readable. '.repeat(150),
+    });
+    await icon.click();
+    panel = await popupWithinViewport();
+    const beforeScroll = await read(page, id);
+    const panelBounds = await panel.boundingBox();
+    if (!panelBounds) throw new Error('Missing information popover');
+    await page.mouse.move(
+      panelBounds.x + panelBounds.width / 2,
+      panelBounds.y + panelBounds.height / 2,
+    );
+    await page.mouse.wheel(0, 300);
+    await expect
+      .poll(() => panel.evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0);
+    expect((await read(page, id)).document).toEqual(beforeScroll.document);
+    await unchangedGeometry();
+  }
+  await page.keyboard.press('Escape');
+  await select(page, device);
+  fields = await visibleFields(page);
+  await fields
+    .getByRole('checkbox', { name: 'Show header Model', exact: true })
+    .uncheck();
+  await saved(page);
+  await closeInspector(page);
+  await icon.click();
+  panel = await popupWithinViewport();
+  await expect(panel).toContainText(longManufacturer.trim());
+  await expect(panel).not.toContainText(longModel);
+  await page.keyboard.press('Escape');
+  const preferences = (await read(page, id)).document.elements[0]!.properties
+    .headerFields;
   await page.reload();
   await saved(page);
   await collapseBrowser(page);
-  expect(await bounds(device)).toEqual(narrowGeometry);
-  await contained(device);
   expect(
     (await read(page, id)).document.elements[0]!.properties.headerFields,
-  ).toEqual(narrowSaved.document.elements[0]!.properties.headerFields);
-  expect((await read(page, id)).document.ports).toEqual(
-    original.document.ports,
-  );
-  expect((await read(page, id)).document.cables).toEqual(
-    original.document.cables,
-  );
-  const beforeZoom = await bounds(device);
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await saved(page);
-  await contained(device);
-  expect(await bounds(device)).toEqual(beforeZoom);
-  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
-  await saved(page);
-  await contained(device);
-  expect(await bounds(device)).toEqual(beforeZoom);
-  // Face controls keep their behavior, and rear coordinates are preserved too.
+  ).toEqual(preferences);
+  await unchangedGeometry();
+  for (const action of ['Zoom in', 'Zoom out']) {
+    await page.getByRole('button', { name: action, exact: true }).click();
+    await saved(page);
+    await completePills();
+    await unchangedGeometry();
+  }
   await device
     .getByRole('button', { name: 'Rear', exact: true })
     .press('Enter');
@@ -462,12 +601,6 @@ test('device header information fits a fixed eighty-pixel header without changin
     .getByRole('button', { name: 'Front', exact: true })
     .press('Enter');
   await saved(page);
-  await contained(device);
-  expect((await read(page, id)).document.cables).toEqual(
-    original.document.cables,
-  );
-  await expect(
-    peer.locator('.board-device-info-chip[data-field="manufacturer"]'),
-  ).toContainText('Peer maker');
+  await unchangedGeometry();
   expect(errors).toEqual([]);
 });

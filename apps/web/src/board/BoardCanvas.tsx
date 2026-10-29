@@ -230,7 +230,9 @@ export function BoardCanvas(props: BoardCanvasProps) {
       if (current.disabled || gesture.current || pinch.current) return;
       if (
         event.target instanceof Element &&
-        event.target.closest('input,textarea,select,[contenteditable="true"]')
+        event.target.closest(
+          'input,textarea,select,[contenteditable="true"],[popover]',
+        )
       )
         return;
       event.preventDefault();
@@ -1126,6 +1128,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 >
                   {element.type === 'device' ? (
                     <DeviceHeader
+                      nameText={element.name}
                       name={inlineName('element', element.id, element.name)}
                       faceControls={
                         <div

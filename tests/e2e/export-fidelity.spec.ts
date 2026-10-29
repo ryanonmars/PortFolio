@@ -393,3 +393,144 @@ test('standalone vector export matches the shared board presentation, content bo
   await visualComparison(page, reduced, `${info.project.name}-grid-fields`);
   expect(errors).toEqual([]);
 });
+
+for (const boxless of [false, true]) {
+  test(`narrow custom device export preserves native header text${boxless ? ' through display-contents wrappers' : ''}`, async ({
+    page,
+  }, info) => {
+    test.setTimeout(90_000);
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto('/');
+    const setup = await (
+      await page.request.get('/api/v1/auth/setup-status')
+    ).json();
+    await page.getByLabel('Username', { exact: true }).fill('board-admin');
+    await page
+      .getByLabel('Password', { exact: true })
+      .fill('Synthetic-board-password-42');
+    await page
+      .getByRole('button', {
+        name: setup.setupRequired ? 'Create administrator account' : 'Sign in',
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole('button', { name: 'Open board browser', exact: true }),
+    ).toBeVisible();
+    const auth = await (await page.request.get('/api/v1/auth/session')).json();
+    const document = emptyBoardDocument();
+    document.grid = false;
+    document.viewport = { x: 210, y: 160, zoom: 0.7 };
+    const names = ['NAS', 'AP', 'Firewall', 'PDU'];
+    document.elements = [160, 180, 200, 240].map((width, index) => ({
+      id: `narrow-${index}`,
+      type: 'device',
+      name: names[index]!,
+      x: -180 + index * 220,
+      y: -100,
+      width,
+      height: 220,
+      z: index,
+      color: '',
+      properties: {
+        face: index % 2 ? 'rear' : 'front',
+        deviceType: index % 2 ? 'Custom' : 'Other',
+        manufacturer: 'Enabled maker',
+        model: 'Hidden model',
+        headerFields: boxless ? [] : ['deviceType'],
+      },
+    }));
+    document.ports = document.elements.map((element, index): BoardPort => ({
+      id: `narrow-port-${index}`,
+      deviceId: element.id,
+      face: index % 2 ? 'rear' : 'front',
+      row: 0,
+      column: 0,
+      name: 'Port 1',
+      kind: index % 2 ? 'sfp' : 'rj45',
+      color: '#428deb',
+      role: 'Uplink',
+      speed: '',
+      linkState: 'unknown',
+      nativeVlan: '',
+      taggedVlans: [],
+      pvid: '',
+      address: '',
+      externalDestination: '',
+      notes: '',
+      customFields: {},
+    }));
+    const response = await page.request.post('/api/v1/boards', {
+      headers: {
+        Origin: new URL(page.url()).origin,
+        'x-csrf-token': auth.csrfToken,
+      },
+      data: { name: `Narrow export ${randomUUID().slice(0, 8)}`, document },
+    });
+    expect(response.status()).toBe(201);
+    const board = (await response.json()).board;
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-save-status')).toHaveText('Saved');
+    if (boxless) {
+      // Reproduce the previous compact-header layout in both the live board and
+      // its offscreen shared renderer. A display:contents wrapper owns no box.
+      await page.route('**/test-boxless-header.css', (route) =>
+        route.fulfill({
+          contentType: 'text/css',
+          body: `
+        .board-device-header-content { display:grid!important; grid-template-rows:21px 21px 0!important; gap:3px!important; }
+        .board-device-header-top { display:contents!important; }
+        .board-device-header-content .board-device-header-name { grid-row:1!important; grid-column:1!important; }
+        .board-device-header-content .board-device-header-faces { grid-row:2!important; grid-column:1!important; justify-self:start; }
+        .board-device-info { display:none!important; }
+      `,
+        }),
+      );
+      await page.addStyleTag({ url: '/test-boxless-header.css' });
+      expect(
+        await page
+          .locator('.board-device-header-top')
+          .first()
+          .evaluate((node) => getComputedStyle(node).display),
+      ).toBe('contents');
+    }
+    const before = (
+      await (await page.request.get(`/api/v1/boards/${board.id}`)).json()
+    ).board;
+    const svg = await exportSvg(page);
+    const nativeText = await page.evaluate((source) => {
+      const parsed = new DOMParser().parseFromString(source, 'image/svg+xml');
+      return [...parsed.querySelectorAll('text')].map(
+        (node) => node.textContent,
+      );
+    }, svg);
+    for (const name of names) expect(nativeText).toContain(name);
+    expect(nativeText.filter((value) => value === 'Front')).toHaveLength(4);
+    expect(nativeText.filter((value) => value === 'Rear')).toHaveLength(4);
+    expect(svg).not.toContain('Hidden model');
+    expect(svg).not.toContain('Enabled maker');
+    if (!boxless) {
+      const icons = await page
+        .locator('.board-device-info-overflow button')
+        .count();
+      expect(nativeText.filter((value) => value === 'i')).toHaveLength(icons);
+      const displayed = await page
+        .locator(
+          '.board-device-info-chip .board-device-info-label,.board-device-info-chip .board-device-info-value',
+        )
+        .allTextContents();
+      for (const value of displayed) expect(nativeText).toContain(value);
+    }
+    await visualComparison(
+      page,
+      svg,
+      `${info.project.name}-narrow-${boxless ? 'contents' : 'current'}`,
+    );
+    expect(
+      (await (await page.request.get(`/api/v1/boards/${board.id}`)).json())
+        .board,
+    ).toEqual(before);
+    expect(errors).toEqual([]);
+  });
+}

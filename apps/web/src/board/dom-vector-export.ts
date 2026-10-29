@@ -245,6 +245,7 @@ export function renderedBoardSvg(
       .map((line) => {
         let value = line.text;
         if (
+          style.display !== 'contents' &&
           style.textOverflow === 'ellipsis' &&
           (line.right > parentBox.x + parentBox.width + 0.5 ||
             parent.scrollWidth > parent.clientWidth) &&
@@ -317,70 +318,74 @@ export function renderedBoardSvg(
       // A root SVG's own CSS supplies its placement and used dimensions.
       return `<svg x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}" overflow="visible"${element.hasAttribute('viewBox') ? ` viewBox="${xml(element.getAttribute('viewBox')!)}"` : ''}>${clone.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '')}</svg>`;
     }
-    if (!box.width || !box.height) return '';
+    // Boxless layout wrappers still have visible children (notably compact headers).
+    const boxless = style.display === 'contents';
+    if (!boxless && (!box.width || !box.height)) return '';
     let output = '';
     const radius = parseFloat(style.borderTopLeftRadius) || 0;
-    const shadow = cssShadow(style.boxShadow);
-    if (shadow && element.matches('[data-board-element-id]')) {
-      const name = `board-export-shadow-${++id}`;
-      const extent = shadow.blur * 1.5 + Math.abs(shadow.spread);
-      defs.push(
-        `<filter id="${name}" filterUnits="userSpaceOnUse" x="${number(box.x + Math.min(0, shadow.x) - extent)}" y="${number(box.y + Math.min(0, shadow.y) - extent)}" width="${number(box.width + Math.abs(shadow.x) + extent * 2)}" height="${number(box.height + Math.abs(shadow.y) + extent * 2)}"><feDropShadow dx="${number(shadow.x)}" dy="${number(shadow.y)}" stdDeviation="${number(shadow.blur / 2)}" flood-color="${xml(shadow.color)}"/></filter>`,
-      );
-      output += rectSvg(
-        box.x,
-        box.y,
-        box.width,
-        box.height,
-        `rx="${radius}" fill="${xml(style.backgroundColor)}" filter="url(#${name})"`,
-      );
-    }
-    if (!transparent(style.backgroundColor))
-      output += rectSvg(
-        box.x,
-        box.y,
-        box.width,
-        box.height,
-        `rx="${radius}" fill="${xml(style.backgroundColor)}"`,
-      );
-    const borders = ['Top', 'Right', 'Bottom', 'Left'] as const;
-    const widths = borders.map(
-      (side) => parseFloat(style[`border${side}Width`]) || 0,
-    );
-    const colors = borders.map((side) => style[`border${side}Color`]);
-    if (
-      widths.every((width) => width === widths[0]) &&
-      colors.every((color) => color === colors[0]) &&
-      widths[0]
-    ) {
-      const inset = widths[0] / 2;
-      output += rectSvg(
-        box.x + inset,
-        box.y + inset,
-        box.width - widths[0],
-        box.height - widths[0],
-        `rx="${Math.max(0, radius - inset)}" fill="none" stroke="${xml(colors[0]!)}" stroke-width="${widths[0]}"`,
-      );
-    } else
-      borders.forEach((_, index) => {
-        if (!widths[index] || transparent(colors[index]!)) return;
-        const w = widths[index];
-        const dimensions =
-          index === 0
-            ? [box.x, box.y, box.width, w]
-            : index === 1
-              ? [box.x + box.width - w, box.y, w, box.height]
-              : index === 2
-                ? [box.x, box.y + box.height - w, box.width, w]
-                : [box.x, box.y, w, box.height];
-        output += rectSvg(
-          dimensions[0]!,
-          dimensions[1]!,
-          dimensions[2]!,
-          dimensions[3]!,
-          `fill="${xml(colors[index]!)}"`,
+    if (!boxless) {
+      const shadow = cssShadow(style.boxShadow);
+      if (shadow && element.matches('[data-board-element-id]')) {
+        const name = `board-export-shadow-${++id}`;
+        const extent = shadow.blur * 1.5 + Math.abs(shadow.spread);
+        defs.push(
+          `<filter id="${name}" filterUnits="userSpaceOnUse" x="${number(box.x + Math.min(0, shadow.x) - extent)}" y="${number(box.y + Math.min(0, shadow.y) - extent)}" width="${number(box.width + Math.abs(shadow.x) + extent * 2)}" height="${number(box.height + Math.abs(shadow.y) + extent * 2)}"><feDropShadow dx="${number(shadow.x)}" dy="${number(shadow.y)}" stdDeviation="${number(shadow.blur / 2)}" flood-color="${xml(shadow.color)}"/></filter>`,
         );
-      });
+        output += rectSvg(
+          box.x,
+          box.y,
+          box.width,
+          box.height,
+          `rx="${radius}" fill="${xml(style.backgroundColor)}" filter="url(#${name})"`,
+        );
+      }
+      if (!transparent(style.backgroundColor))
+        output += rectSvg(
+          box.x,
+          box.y,
+          box.width,
+          box.height,
+          `rx="${radius}" fill="${xml(style.backgroundColor)}"`,
+        );
+      const borders = ['Top', 'Right', 'Bottom', 'Left'] as const;
+      const widths = borders.map(
+        (side) => parseFloat(style[`border${side}Width`]) || 0,
+      );
+      const colors = borders.map((side) => style[`border${side}Color`]);
+      if (
+        widths.every((width) => width === widths[0]) &&
+        colors.every((color) => color === colors[0]) &&
+        widths[0]
+      ) {
+        const inset = widths[0] / 2;
+        output += rectSvg(
+          box.x + inset,
+          box.y + inset,
+          box.width - widths[0],
+          box.height - widths[0],
+          `rx="${Math.max(0, radius - inset)}" fill="none" stroke="${xml(colors[0]!)}" stroke-width="${widths[0]}"`,
+        );
+      } else
+        borders.forEach((_, index) => {
+          if (!widths[index] || transparent(colors[index]!)) return;
+          const w = widths[index];
+          const dimensions =
+            index === 0
+              ? [box.x, box.y, box.width, w]
+              : index === 1
+                ? [box.x + box.width - w, box.y, w, box.height]
+                : index === 2
+                  ? [box.x, box.y + box.height - w, box.width, w]
+                  : [box.x, box.y, w, box.height];
+          output += rectSvg(
+            dimensions[0]!,
+            dimensions[1]!,
+            dimensions[2]!,
+            dimensions[3]!,
+            `fill="${xml(colors[index]!)}"`,
+          );
+        });
+    }
     const children = [...element.childNodes];
     // CSS positioned stacking order matters, particularly the cable layer.
     const ordered = children
@@ -403,8 +408,9 @@ export function renderedBoardSvg(
       )
       .join('');
     if (
-      ['hidden', 'auto', 'scroll', 'clip'].includes(style.overflowX) ||
-      ['hidden', 'auto', 'scroll', 'clip'].includes(style.overflowY)
+      !boxless &&
+      (['hidden', 'auto', 'scroll', 'clip'].includes(style.overflowX) ||
+        ['hidden', 'auto', 'scroll', 'clip'].includes(style.overflowY))
     )
       contents = `<g clip-path="url(#${clip(box, radius)})">${contents}</g>`;
     const title = element.getAttribute('title');
