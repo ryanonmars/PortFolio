@@ -35,14 +35,24 @@ export function PortHoverTooltip({
       `button[data-port-id="${CSS.escape(port.id)}"]`,
     );
     if (!element || !anchor) return;
+    const toolbar = canvas.current
+      ?.closest('.board-editor')
+      ?.querySelector('.board-toolbar');
     let frame = 0;
     const fit = () => {
       const visual = window.visualViewport;
+      const visibleTop = visual?.offsetTop ?? 0;
+      const visibleBottom = visibleTop + (visual?.height ?? window.innerHeight);
+      // Keep navigation reachable even when a large summary fits above a port.
+      const top = Math.max(
+        visibleTop,
+        toolbar?.getBoundingClientRect().bottom ?? visibleTop,
+      );
       const viewport = {
         x: visual?.offsetLeft ?? 0,
-        y: visual?.offsetTop ?? 0,
+        y: top,
         width: visual?.width ?? window.innerWidth,
-        height: visual?.height ?? window.innerHeight,
+        height: Math.max(0, visibleBottom - top),
       };
       const trigger = anchor.getBoundingClientRect();
       const surface = canvas.current?.getBoundingClientRect();
@@ -100,6 +110,7 @@ export function PortHoverTooltip({
     const observer = new ResizeObserver(schedule);
     observer.observe(element);
     observer.observe(anchor);
+    if (toolbar) observer.observe(toolbar);
     if (canvas.current) observer.observe(canvas.current);
     window.addEventListener('resize', schedule);
     window.addEventListener('scroll', schedule, true);

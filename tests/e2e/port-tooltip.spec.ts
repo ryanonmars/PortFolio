@@ -260,9 +260,12 @@ async function positioned(page: Page, id = 'source-0') {
     port = (await socket(page, id).boundingBox())!,
     canvas = (await page.getByTestId('board-canvas').boundingBox())!;
   const viewport = page.viewportSize()!;
+  const toolbar = (await page
+    .getByRole('toolbar', { name: 'Board tools', exact: true })
+    .boundingBox())!;
   expect(tip.width).toBeLessThanOrEqual(481);
   expect(tip.x).toBeGreaterThanOrEqual(0);
-  expect(tip.y).toBeGreaterThanOrEqual(0);
+  expect(tip.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height);
   expect(tip.x + tip.width).toBeLessThanOrEqual(
     Math.min(viewport.width, canvas.x + canvas.width) + 1,
   );
