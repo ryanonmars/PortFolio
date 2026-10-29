@@ -452,3 +452,12 @@
     max-width: calc(100% - 44px);
   }
 }
+
+.board-marquee {
+  position: absolute;
+  pointer-events: none;
+  z-index: 100002;
+  box-sizing: border-box;
+  border: 1px solid #6aa9ef;
+  background: rgb(75 145 225 / 14%);
+}

@@ -145,11 +145,15 @@ export const BoardEditor = forwardRef<
   function remove() {
     if (blocked()) return;
     if (!selection) return;
+    const ids =
+      selection.type === 'element'
+        ? (selection.ids ?? [selection.id])
+        : [selection.id];
     const portIds = new Set(
       document.ports
         .filter((port) =>
           selection.type === 'element'
-            ? port.deviceId === selection.id
+            ? ids.includes(port.deviceId)
             : selection.type === 'port' && port.id === selection.id,
         )
         .map((port) => port.id),
@@ -160,18 +164,26 @@ export const BoardEditor = forwardRef<
     );
     if (
       connected &&
-      !window.confirm('Delete this object and its attached cables?')
+      !window.confirm(
+        ids.length > 1
+          ? 'Delete the selected objects and their attached cables?'
+          : 'Delete this object and its attached cables?',
+      )
     )
       return;
     change(
-      removeObject(document, selection.type, selection.id),
-      'Delete object',
+      ids.reduce(
+        (current, id) => removeObject(current, selection.type, id),
+        document,
+      ),
+      ids.length > 1 ? 'Delete objects' : 'Delete object',
     );
     setSelection(null);
   }
   function duplicate() {
     if (blocked()) return;
-    if (selection?.type !== 'element') return;
+    if (selection?.type !== 'element' || (selection.ids?.length ?? 1) > 1)
+      return;
     const next = duplicateElement(document, selection.id);
     change(next, 'Duplicate container');
     setSelection({ type: 'element', id: next.elements.at(-1)!.id });
@@ -609,16 +621,30 @@ export const BoardEditor = forwardRef<
         onGestureChange={updateGesture}
         fitToken={fitToken}
       />
-      {selection && (
-        <BoardInspector
-          key={`${selection.type}:${selection.id}`}
-          document={document}
-          selection={selection}
-          onChange={change}
-          onClose={() => setSelection(null)}
-          onDelete={remove}
-          onDuplicate={duplicate}
-        />
+      {selection?.type === 'element' && (selection.ids?.length ?? 1) > 1 ? (
+        <aside className="board-inspector" aria-label="Object inspector">
+          <header>
+            <h2>{selection.ids!.length} objects selected</h2>
+            <button
+              aria-label="Close inspector"
+              onClick={() => setSelection(null)}
+            >
+              ×
+            </button>
+          </header>
+        </aside>
+      ) : (
+        selection && (
+          <BoardInspector
+            key={`${selection.type}:${selection.id}`}
+            document={document}
+            selection={selection}
+            onChange={change}
+            onClose={() => setSelection(null)}
+            onDelete={remove}
+            onDuplicate={duplicate}
+          />
+        )
       )}
     </section>
   );

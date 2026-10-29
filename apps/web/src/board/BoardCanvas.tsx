@@ -45,9 +45,15 @@ import {
   type Guide,
   type Point,
 } from './geometry.js';
+import { enclosedElementIds, marqueeRect, moveSelection } from './selection.js';
+import type { Rect } from './geometry.js';
 import './canvas.css';
 export { fitViewport, getPortPoint, minimumDeviceSize } from './geometry.js';
-export type BoardSelection = { type: 'element' | 'port' | 'cable'; id: string };
+export type BoardSelection = {
+  type: 'element' | 'port' | 'cable';
+  id: string;
+  ids?: string[];
+};
 export interface BoardCanvasProps {
   document: BoardDocument;
   selection: BoardSelection | null;
@@ -59,7 +65,11 @@ export interface BoardCanvasProps {
   fitToken?: number;
 }
 type Gesture = {
-  type: 'pan' | 'move' | 'resize' | 'port';
+  type: 'pan' | 'move' | 'resize' | 'port' | 'marquee';
+  ids?: string[];
+  selection?: BoardSelection | null;
+  additive?: boolean;
+  modified?: boolean;
   pointer: number;
   start: Point;
   base: BoardDocument;
@@ -115,6 +125,31 @@ export function BoardCanvas(props: BoardCanvasProps) {
   } | null>(null);
   const previewRef = useRef<BoardDocument | null>(null);
   const [preview, setPreview] = useState<BoardDocument | null>(null);
+  const [marquee, setMarquee] = useState<Rect | null>(null);
+  const selectedIds =
+    selection?.type === 'element' ? (selection.ids ?? [selection.id]) : [];
+  function selectIds(ids: string[]) {
+    onSelect(ids.length ? { type: 'element', id: ids[0]!, ids } : null);
+  }
+  function chooseElement(
+    id: string,
+    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+    preserve = false,
+  ) {
+    if (event.metaKey || event.ctrlKey) {
+      const ids = selectedIds.includes(id)
+        ? selectedIds.filter((item) => item !== id)
+        : [...selectedIds, id];
+      selectIds(ids);
+      return ids;
+    }
+    const ids =
+      event.shiftKey || (preserve && selectedIds.includes(id))
+        ? [...new Set([...selectedIds, id])]
+        : [id];
+    selectIds(ids);
+    return ids;
+  }
   const [guides, setGuides] = useState<Guide[]>([]);
   const [notice, setNotice] = useState('');
   const [rename, setRename] = useState<Rename | null>(null);
@@ -222,8 +257,16 @@ export function BoardCanvas(props: BoardCanvasProps) {
   function cancelGesture() {
     cancelHold();
     setTouchSummary(null);
+    if (gesture.current?.type === 'marquee')
+      onSelect(gesture.current.selection ?? null);
+    const captures = new Set(pointers.current.keys());
+    if (gesture.current) captures.add(gesture.current.pointer);
     gesture.current = null;
     pinch.current = null;
+    for (const pointer of captures)
+      if (root.current?.hasPointerCapture(pointer))
+        root.current.releasePointerCapture(pointer);
+    setMarquee(null);
     pointers.current.clear();
     showPreview(null);
     setGuides([]);
@@ -298,21 +341,48 @@ export function BoardCanvas(props: BoardCanvasProps) {
     );
   }, [fitToken, document, onChange]);
   useEffect(() => {
-    if (tool === 'cable') return;
+    const active = gesture.current;
+    if (active || pinch.current) {
+      if (active?.type === 'marquee')
+        latest.current.onSelect(active.selection ?? null);
+      gesture.current = null;
+      for (const pointer of pointers.current.keys())
+        if (root.current?.hasPointerCapture(pointer))
+          root.current.releasePointerCapture(pointer);
+      pinch.current = null;
+      pointers.current.clear();
+      previewRef.current = null;
+      latest.current.onGestureChange?.(false);
+    }
+    const reset = requestAnimationFrame(() => {
+      setPreview(null);
+      setMarquee(null);
+      setGuides([]);
+    });
+    if (tool === 'cable') return () => cancelAnimationFrame(reset);
     const frame = requestAnimationFrame(() => {
       setSourcePort(null);
       setNotice('');
     });
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(reset);
+    };
   }, [tool]);
   useEffect(() => {
     if (!disabled) return;
     const frame = requestAnimationFrame(() => {
+      if (gesture.current?.type === 'marquee')
+        latest.current.onSelect(gesture.current.selection ?? null);
       gesture.current = null;
       pinch.current = null;
+      for (const pointer of pointers.current.keys())
+        if (root.current?.hasPointerCapture(pointer))
+          root.current.releasePointerCapture(pointer);
       pointers.current.clear();
       previewRef.current = null;
       setPreview(null);
+      setMarquee(null);
       setGuides([]);
       latest.current.onGestureChange?.(false);
     });
@@ -374,8 +444,17 @@ export function BoardCanvas(props: BoardCanvasProps) {
     event.stopPropagation();
     root.current?.focus({ preventScroll: true });
     root.current?.setPointerCapture(event.pointerId);
+    let ids: string[] | undefined;
+    if (type === 'move') {
+      ids = chooseElement(id!, event, true);
+      suppressClickUntil.current = event.timeStamp + 500;
+    }
     gesture.current = {
       type,
+      ids,
+      selection,
+      additive: event.shiftKey,
+      modified: event.shiftKey || event.metaKey || event.ctrlKey,
       pointer: event.pointerId,
       start: local(event),
       base,
@@ -383,12 +462,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
       handle,
       moved: false,
     };
-    if (type === 'move' || type === 'resize')
-      onSelect({ type: 'element', id: id! });
+    if (type === 'resize') onSelect({ type: 'element', id: id! });
     if (type === 'port') onSelect({ type: 'port', id: id! });
     onGestureChange?.(true);
   }
   function capturePointer(event: ReactPointerEvent<HTMLDivElement>) {
+    suppressClickUntil.current = 0;
     lastPointerType.current = event.pointerType;
     cancelHold();
     suppressHoldClick.current = null;
@@ -432,15 +511,17 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (
       tool === 'pan' ||
       root.current?.classList.contains('space-pan') ||
-      event.button === 1 ||
-      (event.shiftKey && background)
+      event.button === 1
     ) {
       begin(event, 'pan');
       return;
     }
-    if (background) {
-      onSelect(null);
-      if (event.pointerType === 'touch') begin(event, 'pan');
+    if (background && event.button === 0) {
+      if (event.pointerType === 'touch') {
+        onSelect(null);
+        begin(event, 'pan');
+      } else if (tool === 'select') begin(event, 'marquee');
+      else onSelect(null);
     }
   }
   function pointerMove(event: ReactPointerEvent<HTMLDivElement>) {
@@ -492,9 +573,42 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (!active || active.pointer !== event.pointerId) return;
     const dx = (point.x - active.start.x) / active.base.viewport.zoom,
       dy = (point.y - active.start.y) / active.base.viewport.zoom;
-    if (Math.abs(dx) + Math.abs(dy) < 2 && !active.moved) return;
+    if (
+      Math.hypot(point.x - active.start.x, point.y - active.start.y) < 4 &&
+      !active.moved
+    )
+      return;
     active.moved = true;
     suppressClickUntil.current = event.timeStamp + 500;
+    if (active.type === 'marquee') {
+      const rect = marqueeRect(
+        screenToWorld(active.start, active.base.viewport),
+        screenToWorld(point, active.base.viewport),
+      );
+      setMarquee(rect);
+      const previous =
+        active.additive && active.selection?.type === 'element'
+          ? (active.selection.ids ?? [active.selection.id])
+          : [];
+      selectIds([
+        ...new Set([
+          ...previous,
+          ...enclosedElementIds(active.base.elements, rect),
+        ]),
+      ]);
+      return;
+    }
+    if (active.type === 'move') {
+      const result = moveSelection(
+        active.base,
+        active.ids ?? [],
+        { x: dx, y: dy },
+        event.altKey,
+      );
+      showPreview(result.document);
+      setGuides(result.guides);
+      return;
+    }
     if (active.type === 'pan') {
       showPreview({
         ...active.base,
@@ -514,22 +628,13 @@ export function BoardCanvas(props: BoardCanvasProps) {
       });
       return;
     }
-    if (active.type === 'move' || active.type === 'resize') {
+    if (active.type === 'resize') {
       const element = active.base.elements.find(
         (item) => item.id === active.id,
       );
       if (!element) return;
       let next: BoardElement;
-      if (active.type === 'move') {
-        const snapped = snapRect(
-          { ...element, x: element.x + dx, y: element.y + dy },
-          active.base.elements.filter((item) => item.id !== element.id),
-          active.base.viewport.zoom,
-          event.altKey,
-        );
-        next = { ...element, ...snapped.rect };
-        setGuides(snapped.guides);
-      } else {
+      {
         const minimum = minimumDeviceSize(element, active.base.ports),
           handle = active.handle!;
         const rect = resizeRect(
@@ -647,7 +752,17 @@ export function BoardCanvas(props: BoardCanvasProps) {
     const active = gesture.current;
     if (!active || active.pointer !== event.pointerId) return;
     gesture.current = null;
+    if (active.type === 'move') {
+      suppressClickUntil.current = event.timeStamp + 500;
+      if (!active.moved && !active.modified) selectIds([active.id!]);
+    }
+    setMarquee(null);
     setGuides([]);
+    if (active.type === 'marquee') {
+      if (!active.moved) onSelect(null);
+      onGestureChange?.(false);
+      return;
+    }
     const next = previewRef.current;
     showPreview(null);
     onGestureChange?.(false);
@@ -671,6 +786,25 @@ export function BoardCanvas(props: BoardCanvasProps) {
           ),
         },
         'Move port',
+      );
+      return;
+    }
+    if (active.type === 'move') {
+      const ids = new Set(active.ids);
+      const positions = new Map(
+        next.elements
+          .filter((item) => ids.has(item.id))
+          .map((item) => [item.id, item]),
+      );
+      onChange(
+        {
+          ...document,
+          elements: document.elements.map((item) => {
+            const position = positions.get(item.id);
+            return position ? { ...item, x: position.x, y: position.y } : item;
+          }),
+        },
+        ids.size > 1 ? 'Move objects' : 'Move object',
       );
       return;
     }
@@ -937,7 +1071,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
       role="region"
       aria-label="Board canvas"
       onClickCapture={(event) => {
-        if (event.timeStamp < suppressClickUntil.current) {
+        // Drag suppression applies to the generated pointer click, never to
+        // keyboard activation of a button immediately after a gesture.
+        if (
+          event.detail !== 0 &&
+          event.timeStamp < suppressClickUntil.current
+        ) {
           event.preventDefault();
           event.stopPropagation();
         }
@@ -953,11 +1092,16 @@ export function BoardCanvas(props: BoardCanvasProps) {
       onKeyDown={(event) => {
         if (
           event.target instanceof Element &&
-          event.target.closest('input,textarea,select,.board-summary-content')
+          (event.target.closest('input,textarea,select') ||
+            (event.key !== 'Escape' &&
+              event.target.closest('.board-summary-content')))
         )
           return;
         if (event.key === 'Escape') {
           event.preventDefault();
+          if (gesture.current || pinch.current || sourcePort)
+            event.stopPropagation();
+          else onSelect(null);
           cancelGesture();
           setSourcePort(null);
           setHoverPort(null);
@@ -1020,38 +1164,23 @@ export function BoardCanvas(props: BoardCanvasProps) {
         ) {
           event.preventDefault();
           const amount = event.altKey ? 1 : event.shiftKey ? 40 : 8;
+          const delta = {
+            x:
+              event.key === 'ArrowLeft'
+                ? -amount
+                : event.key === 'ArrowRight'
+                  ? amount
+                  : 0,
+            y:
+              event.key === 'ArrowUp'
+                ? -amount
+                : event.key === 'ArrowDown'
+                  ? amount
+                  : 0,
+          };
           onChange(
-            {
-              ...document,
-              elements: document.elements.map((item) =>
-                item.id === selection.id
-                  ? {
-                      ...item,
-                      x: clamp(
-                        item.x +
-                          (event.key === 'ArrowLeft'
-                            ? -amount
-                            : event.key === 'ArrowRight'
-                              ? amount
-                              : 0),
-                        -100000,
-                        100000,
-                      ),
-                      y: clamp(
-                        item.y +
-                          (event.key === 'ArrowUp'
-                            ? -amount
-                            : event.key === 'ArrowDown'
-                              ? amount
-                              : 0),
-                        -100000,
-                        100000,
-                      ),
-                    }
-                  : item,
-              ),
-            },
-            'Move object',
+            moveSelection(document, selectedIds, delta, true).document,
+            selectedIds.length > 1 ? 'Move objects' : 'Move object',
           );
         }
       }}
@@ -1082,8 +1211,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
           .slice()
           .sort((a, b) => a.z - b.z)
           .map((element) => {
-            const selected =
-              selection?.type === 'element' && selection.id === element.id;
+            const selected = selectedIds.includes(element.id);
             const face = activeFace(element);
             const devicePorts = visible.ports.filter(
               (port) => port.deviceId === element.id,
@@ -1119,7 +1247,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  if (!disabled) onSelect({ type: 'element', id: element.id });
+                  if (!disabled && tool === 'select')
+                    chooseElement(element.id, event);
                 }}
               >
                 <header
@@ -1127,7 +1256,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
                   onPointerDown={(event) => {
                     if (
                       tool === 'pan' ||
-                      root.current?.classList.contains('space-pan')
+                      root.current?.classList.contains('space-pan') ||
+                      event.button === 1
                     )
                       begin(event, 'pan');
                     else if (tool !== 'cable') begin(event, 'move', element.id);
@@ -1459,8 +1589,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
                     onPointerCancel={() => {
                       summaryScroll.current = null;
                     }}
-                    onKeyDown={(event) => event.stopPropagation()}
-                    onKeyUp={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Escape') event.stopPropagation();
+                    }}
+                    onKeyUp={(event) => {
+                      if (event.key !== 'Escape') event.stopPropagation();
+                    }}
                   >
                     <DeviceSummary document={visible} element={element} />
                   </div>
@@ -1468,6 +1602,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                   <NetworkSummary element={element} />
                 )}
                 {selected &&
+                  selectedIds.length === 1 &&
                   !disabled &&
                   tool === 'select' &&
                   handles.map((handle) => (
@@ -1589,6 +1724,18 @@ export function BoardCanvas(props: BoardCanvasProps) {
               );
             })}
           </svg>
+        )}
+        {marquee && (
+          <div
+            className="board-marquee"
+            aria-hidden="true"
+            style={{
+              left: marquee.x,
+              top: marquee.y,
+              width: marquee.width,
+              height: marquee.height,
+            }}
+          />
         )}
         <svg className="board-guide-layer" aria-hidden="true">
           {guides.map((guide, index) =>

@@ -17,6 +17,7 @@ Open `http://127.0.0.1:3088` and create the administrator account. Compose binds
 - **Boards** are standalone; optional **Groups** are folders. The sidebar supports creation, renaming, duplication, deletion and board reordering. Collapse it for more canvas space.
 - **Add → Device** creates an empty router, switch, firewall, access point, server or custom device. No rack, network or address setup is needed.
 - The Device inspector’s **Visible Fields** controls choose and order header information. Manufacturer, Model and Management Address appear by default when populated. The header stays 80 pixels high; values truncate and lower-priority pills hide as needed, with full values in tooltips and the inspector. Device dimensions, port positions and cables never change to fit this content.
+- On desktop, drag empty canvas to select enclosed containers. Shift-click adds to the selection; Command/Ctrl-click toggles an object. Drag a selected header to move the selection together with shared snapping; Escape cancels movement. Space-drag or middle-drag pans.
 - Drag a device header to move it. Drag an edge or corner to resize it. Grid, edge, center and spacing guides help alignment; hold Alt/Option to bypass snapping. Resizing retains existing port placement and cannot shrink through occupied slots.
 - Use **Pan**, Space-drag, the mouse wheel/trackpad, Ctrl/Command-wheel zoom, pinch or **Fit** to navigate.
 - Click a name to edit it inline. Click a container or port for its contextual inspector. All property edits autosave; there is no separate configuration page.
@@ -70,6 +71,6 @@ The browser suite covers the board product on desktop and mobile with isolated s
 
 ## Current limits
 
-Selection is one object at a time. Undo history is bounded and lasts for the open editor session. SVG image export shows the currently selected front/rear faces. Detailed layout work is best on desktop; mobile supports viewing, pan/zoom, inspection and basic editing. Multi-object selection and cable sag/physics are future work.
+Undo history is bounded and lasts for the open editor session. SVG image export shows the currently selected front/rear faces. Detailed layout work is best on desktop; mobile supports viewing, pan/zoom, inspection and basic editing. Cable sag/physics is future work.
 
 Keep the existing private repository and local testing workflow. No public release, remote push or image publication is automatic.

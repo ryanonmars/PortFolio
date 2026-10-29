@@ -121,10 +121,30 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:3123',
       },
     },
+    {
+      name: 'desktop-selection',
+      testMatch: '**/selection.spec.ts',
+      grepInvert: /touch background/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 1100 },
+        baseURL: 'http://127.0.0.1:3125',
+      },
+    },
+    {
+      name: 'mobile-selection',
+      testMatch: '**/selection.spec.ts',
+      grep: /touch background/,
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3127',
+      },
+    },
   ],
   webServer: [
     3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115, 3117, 3119,
-    3121, 3123,
+    3121, 3123, 3125, 3127,
   ].map((port, index) => ({
     command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
     url: `http://127.0.0.1:${port}/healthz`,
