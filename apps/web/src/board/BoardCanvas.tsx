@@ -18,6 +18,7 @@ import {
   BoardPort,
   BoardViewport,
 } from '../../../../packages/shared/src/board.js';
+import { PortHoverTooltip } from './PortHoverTooltip.js';
 import { DeviceSummary } from './DeviceSummary.js';
 import { NetworkSummary } from './NetworkSummary.js';
 import { DeviceHeader } from './DeviceHeader.js';
@@ -172,6 +173,51 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const [hoverPort, setHoverPort] = useState<string | null>(null);
   const [touchSummary, setTouchSummary] = useState<string | null>(null);
   const summaryId = useId();
+  const summaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const summaryInside = useRef(false);
+  const dismissedSummary = useRef<string | null>(null);
+  function cancelSummaryDismiss() {
+    if (summaryTimer.current) clearTimeout(summaryTimer.current);
+    summaryTimer.current = null;
+  }
+  function dismissSummary(restoreFocus = false) {
+    cancelSummaryDismiss();
+    summaryInside.current = false;
+    dismissedSummary.current = restoreFocus
+      ? (hoverPort ?? touchSummary)
+      : null;
+    setHoverPort(null);
+    setTouchSummary(null);
+    if (restoreFocus && dismissedSummary.current)
+      root.current
+        ?.querySelector<HTMLButtonElement>(
+          `button[data-port-id="${CSS.escape(dismissedSummary.current)}"]`,
+        )
+        ?.focus({ preventScroll: true });
+  }
+  function scheduleSummaryDismiss(id: string) {
+    cancelSummaryDismiss();
+    summaryTimer.current = setTimeout(() => {
+      const panel = globalThis.document.getElementById(summaryId);
+      const trigger = root.current?.querySelector<HTMLButtonElement>(
+        `button[data-port-id="${CSS.escape(id)}"]`,
+      );
+      if (
+        summaryInside.current ||
+        panel?.contains(globalThis.document.activeElement) ||
+        trigger?.matches(':focus-visible')
+      )
+        return;
+      setHoverPort((current) => (current === id ? null : current));
+      setTouchSummary((current) => (current === id ? null : current));
+    }, 180);
+  }
+  useEffect(
+    () => () => {
+      if (summaryTimer.current) clearTimeout(summaryTimer.current);
+    },
+    [],
+  );
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hold = useRef<{ pointer: number; portId: string; start: Point } | null>(
     null,
@@ -312,6 +358,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
       )
         return;
       event.preventDefault();
+      setHoverPort(null);
+      setTouchSummary(null);
       const box = element!.getBoundingClientRect();
       const point = { x: event.clientX - box.left, y: event.clientY - box.top };
       const old = wheelViewport.current ?? current.document.viewport;
@@ -447,12 +495,14 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }
 
   const summaryPort =
-    !disabled && !preview && !rename && !portMenuOpen && tool !== 'pan'
+    !disabled && !preview && !rename && !portMenuOpen && tool === 'select'
       ? visible.ports.find((port) => port.id === (touchSummary ?? hoverPort))
       : undefined;
-  const summaryPoint = summaryPort
-    ? getPortPoint(visible, summaryPort.id)
-    : null;
+  useEffect(() => {
+    summaryInside.current = false;
+    if (summaryTimer.current) clearTimeout(summaryTimer.current);
+    summaryTimer.current = null;
+  }, [summaryPort?.id]);
   function begin(
     event: ReactPointerEvent<HTMLElement>,
     type: Gesture['type'],
@@ -506,12 +556,17 @@ export function BoardCanvas(props: BoardCanvasProps) {
     onGestureChange?.(true);
   }
   function capturePointer(event: ReactPointerEvent<HTMLDivElement>) {
+    if (
+      event.target instanceof Element &&
+      event.target.closest('.board-port-tooltip')
+    )
+      return;
     suppressClickUntil.current = 0;
     lastPointerType.current = event.pointerType;
     cancelHold();
     suppressHoldClick.current = null;
     setTouchSummary(null);
-    if (event.pointerType === 'touch') setHoverPort(null);
+    dismissSummary();
     if (
       disabled ||
       (event.target instanceof Element &&
@@ -1174,6 +1229,11 @@ export function BoardCanvas(props: BoardCanvasProps) {
       role="region"
       aria-label="Board canvas"
       onClickCapture={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('.board-port-tooltip')
+        )
+          return;
         // Drag suppression applies to the generated pointer click, never to
         // keyboard activation of a button immediately after a gesture.
         if (
@@ -1214,6 +1274,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
         }
         if (event.key === ' ') {
           event.preventDefault();
+          dismissSummary();
           if (!gesture.current) {
             root.current?.classList.add('space-pan');
           }
@@ -1551,7 +1612,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                             disabled={disabled}
                             aria-pressed={selectedPort}
                             aria-describedby={
-                              summaryPort?.id === port.id && summaryPoint
+                              summaryPort?.id === port.id
                                 ? summaryId
                                 : undefined
                             }
@@ -1601,6 +1662,26 @@ export function BoardCanvas(props: BoardCanvasProps) {
                               selectPort(port, event);
                             }}
                             onKeyDown={(event) => {
+                              if (
+                                summaryPort?.id === port.id &&
+                                ['PageDown', 'PageUp'].includes(event.key)
+                              ) {
+                                const panel =
+                                  globalThis.document.getElementById(summaryId);
+                                if (
+                                  panel &&
+                                  panel.scrollHeight > panel.clientHeight
+                                ) {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  panel.scrollBy(
+                                    0,
+                                    panel.clientHeight *
+                                      (event.key === 'PageDown' ? 0.8 : -0.8),
+                                  );
+                                  return;
+                                }
+                              }
                               if (
                                 (event.key === 'ContextMenu' ||
                                   (event.shiftKey && event.key === 'F10')) &&
@@ -1696,15 +1777,30 @@ export function BoardCanvas(props: BoardCanvasProps) {
                                   ?.focus();
                             }}
                             onPointerEnter={(event) => {
-                              if (event.pointerType !== 'touch')
+                              if (event.pointerType !== 'touch') {
+                                cancelSummaryDismiss();
+                                dismissedSummary.current = null;
                                 setHoverPort(port.id);
+                              }
                             }}
-                            onPointerLeave={() => setHoverPort(null)}
-                            onFocus={() => {
-                              if (lastPointerType.current !== 'touch')
+                            onPointerLeave={() =>
+                              scheduleSummaryDismiss(port.id)
+                            }
+                            onFocus={(event) => {
+                              if (
+                                lastPointerType.current !== 'touch' &&
+                                event.currentTarget.matches(':focus-visible') &&
+                                dismissedSummary.current !== port.id
+                              ) {
+                                cancelSummaryDismiss();
                                 setHoverPort(port.id);
+                              }
                             }}
-                            onBlur={() => setHoverPort(null)}
+                            onBlur={() => {
+                              if (dismissedSummary.current === port.id)
+                                dismissedSummary.current = null;
+                              scheduleSummaryDismiss(port.id);
+                            }}
                           >
                             <MemoConnector
                               kind={port.kind}
@@ -1928,19 +2024,22 @@ export function BoardCanvas(props: BoardCanvasProps) {
           )}
         </svg>
       </div>
-      {summaryPort && summaryPoint && (
-        <div
+      {summaryPort && (
+        <PortHoverTooltip
           id={summaryId}
-          role="tooltip"
-          className="board-port-summary"
-          data-summary-port-id={summaryPort.id}
-          style={{
-            left: `clamp(12px, ${viewport.x + summaryPoint.x * viewport.zoom + 14}px, calc(100% - 292px))`,
-            top: `clamp(12px, ${viewport.y + summaryPoint.y * viewport.zoom + 18}px, calc(100% - 150px))`,
+          document={visible}
+          port={summaryPort}
+          canvas={root}
+          onEnter={() => {
+            cancelSummaryDismiss();
+            summaryInside.current = true;
           }}
-        >
-          {summaryFor(summaryPort)}
-        </div>
+          onLeave={() => {
+            summaryInside.current = false;
+            scheduleSummaryDismiss(summaryPort.id);
+          }}
+          onDismiss={dismissSummary}
+        />
       )}
       {notice && (
         <p className="board-canvas-notice" role="status">

@@ -696,8 +696,12 @@ test('canvas equipment, flexible ports, network data and cables autosave and sur
     }
   } else {
     await portButton(firstPort.id).hover();
-    await expect(tooltip).toContainText('PVID 99');
-    await expect(tooltip).toContainText('Native VLAN 20');
+    await expect(
+      tooltip.locator('[data-field="pvid"] .board-network-chip-value'),
+    ).toHaveText('99');
+    await expect(
+      tooltip.locator('[data-field="nativeVlan"] .board-network-chip-value'),
+    ).toHaveText('20');
     await portButton(firstPort.id).focus();
     await expect(portButton(firstPort.id)).toHaveAttribute(
       'aria-describedby',

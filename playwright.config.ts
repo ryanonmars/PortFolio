@@ -177,10 +177,28 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:3135',
       },
     },
+    {
+      name: 'desktop-port-tooltip',
+      testMatch: '**/port-tooltip.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 1000 },
+        baseURL: 'http://127.0.0.1:3137',
+      },
+    },
+    {
+      name: 'mobile-port-tooltip',
+      testMatch: '**/port-tooltip.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3139',
+      },
+    },
   ],
   webServer: [
     3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115, 3117, 3119,
-    3121, 3123, 3125, 3127, 3129, 3131, 3133, 3135,
+    3121, 3123, 3125, 3127, 3129, 3131, 3133, 3135, 3137, 3139,
   ].map((port, index) => ({
     command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
     url: `http://127.0.0.1:${port}/healthz`,

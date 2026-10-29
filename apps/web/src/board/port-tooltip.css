@@ -1,0 +1,89 @@
+.board-port-tooltip {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 16px));
+  box-sizing: border-box;
+  padding: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  border: 1px solid #42594c;
+  border-radius: 8px;
+  background: #17271e;
+  color: #dfebe3;
+  box-shadow: 0 7px 22px #0005;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+.board-port-tooltip:focus-visible {
+  outline: 1px solid #b4d0be;
+  outline-offset: 2px;
+}
+.board-port-tooltip-content {
+  min-width: 0;
+  max-width: 100%;
+}
+.board-port-tooltip-heading {
+  padding-left: 8px;
+  border-left: 2px solid var(--port-tooltip-accent, #849389);
+}
+.board-port-tooltip-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.board-port-tooltip-description {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  margin-top: 3px;
+  color: #b5c8bb;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.board-port-tooltip-description > span + span::before {
+  content: '\00b7';
+  margin-right: 7px;
+  color: #7e9788;
+}
+.board-port-tooltip-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 5px;
+  margin-top: 5px;
+  color: #d5e2d9;
+  font-size: 10px;
+}
+.board-port-tooltip-status-label {
+  color: #a5b9ad;
+}
+.board-port-tooltip-status-dot {
+  align-self: center;
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #8d9e94;
+}
+.board-port-tooltip-status[data-state='up'] .board-port-tooltip-status-dot {
+  background: #8fbd9e;
+}
+.board-port-tooltip-status[data-state='down'] .board-port-tooltip-status-dot {
+  background: #c29b8c;
+}
+.board-port-tooltip-pills {
+  margin-top: 10px;
+}
+.board-port-tooltip-pill {
+  white-space: pre-wrap;
+}
+.board-port-tooltip-pill[data-field='connection'] {
+  flex-basis: 100%;
+}

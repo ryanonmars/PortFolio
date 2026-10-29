@@ -400,25 +400,6 @@
   border-radius: 5px;
   z-index: 100005;
 }
-.board-port-summary {
-  position: absolute;
-  z-index: 100006;
-  width: max-content;
-  max-width: min(280px, calc(100% - 32px));
-  max-height: 140px;
-  overflow: hidden;
-  box-sizing: border-box;
-  padding: 9px 11px;
-  border: 1px solid #738b7a;
-  border-radius: 5px;
-  background: #132019;
-  color: #e2eee6;
-  box-shadow: 0 5px 18px #0005;
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  pointer-events: none;
-}
 .board-canvas button:focus-visible {
   outline: 2px solid #cfebd9;
   outline-offset: 2px;
