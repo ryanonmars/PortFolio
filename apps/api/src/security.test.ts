@@ -13,12 +13,16 @@ afterEach(async () => {
   cleanup.length = 0;
 });
 const password = 'synthetic-test-password-123';
-async function fixture(publicOrigin = 'http://127.0.0.1:3088') {
+async function fixture(
+  publicOrigin = 'http://127.0.0.1:3088',
+  localOrigin?: string,
+) {
   const dataDir = mkdtempSync(join(tmpdir(), 'portfolio-auth-'));
   cleanup.push(() => rmSync(dataDir, { recursive: true, force: true }));
   let app = await createApp({
     dataDir,
     publicOrigin,
+    localOrigin,
     webRoot: join(dataDir, 'no-web'),
     enableLegacyEditor: true,
   });
@@ -74,6 +78,7 @@ async function fixture(publicOrigin = 'http://127.0.0.1:3088') {
       app = await createApp({
         dataDir,
         publicOrigin,
+        localOrigin,
         webRoot: join(dataDir, 'no-web'),
         enableLegacyEditor: true,
       });
@@ -82,6 +87,99 @@ async function fixture(publicOrigin = 'http://127.0.0.1:3088') {
 }
 
 describe('admin security and organization', () => {
+  it('supports independent HTTPS and loopback login sessions without allowing cross-origin writes', async () => {
+    const publicOrigin = 'https://portfolio.example';
+    const client = await fixture(publicOrigin, 'http://127.0.0.1:3090');
+    await client.setup();
+    for (const origin of [
+      publicOrigin,
+      'http://127.0.0.1:3090',
+      'http://localhost:3090',
+    ]) {
+      const host = new URL(origin).host;
+      const session = await client.app.inject({
+        url: '/api/v1/auth/session',
+        headers: { host },
+      });
+      expect(session.statusCode).toBe(200);
+      expect(Boolean(session.cookies[0]?.secure)).toBe(origin === publicOrigin);
+      const cookie = `portfolio_session=${session.cookies[0]!.value}`;
+      const headers = {
+        host,
+        origin,
+        cookie,
+        'x-csrf-token': session.json().csrfToken as string,
+      };
+      for (const forbidden of [
+        {
+          origin:
+            origin === publicOrigin ? 'http://localhost:3090' : publicOrigin,
+        },
+        { origin: 'https://attacker.invalid' },
+        { 'x-csrf-token': 'forged' },
+      ])
+        expect(
+          (
+            await client.app.inject({
+              method: 'POST',
+              url: '/api/v1/auth/login',
+              headers: { ...headers, ...forbidden },
+              payload: { username: 'admin', password },
+            })
+          ).statusCode,
+        ).toBe(403);
+      const login = await client.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        headers,
+        payload: { username: 'admin', password },
+      });
+      expect(login.statusCode).toBe(200);
+      expect(Boolean(login.cookies[0]?.secure)).toBe(origin === publicOrigin);
+      const loggedIn = `portfolio_session=${login.cookies[0]!.value}`;
+      const logout = await client.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/logout',
+        headers: {
+          host,
+          origin,
+          cookie: loggedIn,
+          'x-csrf-token': login.json().csrfToken as string,
+        },
+      });
+      expect(logout.statusCode).toBe(204);
+      expect(Boolean(logout.cookies[0]?.secure)).toBe(origin === publicOrigin);
+    }
+    for (const host of ['127.0.0.1:3091', 'attacker.invalid'])
+      expect(
+        (
+          await client.app.inject({
+            url: '/api/v1/auth/session',
+            headers: { host, 'x-forwarded-host': 'portfolio.example' },
+          })
+        ).statusCode,
+      ).toBe(403);
+  });
+
+  it('rejects non-loopback and ambiguous local origins', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'portfolio-local-origin-'));
+    cleanup.push(() => rmSync(dataDir, { recursive: true, force: true }));
+    for (const localOrigin of [
+      'http://attacker.invalid',
+      'https://localhost:3090',
+      'http://127.0.0.1:3090/path',
+      'http://user:password@localhost:3090',
+      'http://localhost:3090',
+    ])
+      await expect(
+        createApp({
+          dataDir,
+          publicOrigin: 'https://127.0.0.1:3090',
+          localOrigin,
+        }),
+      ).rejects.toThrow('LOCAL_ORIGIN');
+  });
+
   it('rejects absolute-form request targets over real HTTP before setup can run', async () => {
     const client = await fixture();
     const address = await client.app.listen({ host: '127.0.0.1', port: 0 });

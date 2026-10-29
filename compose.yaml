@@ -6,6 +6,7 @@ services:
     init: true
     environment:
       PUBLIC_ORIGIN: '${PUBLIC_ORIGIN:-http://127.0.0.1:${PORT:-3088}}'
+      LOCAL_ORIGIN: 'http://127.0.0.1:${PORT:-3088}'
     ports:
       - '127.0.0.1:${PORT:-3088}:3088'
     volumes:

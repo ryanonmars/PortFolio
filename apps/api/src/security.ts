@@ -78,6 +78,7 @@ export async function registerSecurity(
   app: FastifyInstance,
   db: DatabaseSync,
   publicOrigin: string,
+  localOrigin?: string,
 ) {
   const origin = new URL(publicOrigin);
   if (
@@ -89,16 +90,36 @@ export async function registerSecurity(
     );
   }
   const origins = new Set([origin.origin]);
-  if (
-    origin.protocol === 'http:' &&
-    ['127.0.0.1', 'localhost'].includes(origin.hostname)
-  ) {
-    const alias = new URL(origin);
-    alias.hostname =
-      origin.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
-    origins.add(alias.origin);
+  if (localOrigin) {
+    const local = new URL(localOrigin);
+    if (
+      local.protocol !== 'http:' ||
+      !['127.0.0.1', 'localhost'].includes(local.hostname) ||
+      local.origin !== localOrigin ||
+      (local.host === origin.host && local.protocol !== origin.protocol)
+    )
+      throw new Error('LOCAL_ORIGIN must be an HTTP loopback origin');
+    origins.add(local.origin);
   }
+  for (const value of [...origins]) {
+    const candidate = new URL(value);
+    if (
+      candidate.protocol === 'http:' &&
+      ['127.0.0.1', 'localhost'].includes(candidate.hostname)
+    ) {
+      const alias = new URL(candidate);
+      alias.hostname =
+        candidate.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+      origins.add(alias.origin);
+    }
+  }
+  if (origin.protocol === 'https:' && origins.has(`http://${origin.host}`))
+    throw new Error(
+      'LOCAL_ORIGIN must use a different host from HTTPS PUBLIC_ORIGIN',
+    );
   const hosts = new Set([...origins].map((value) => new URL(value).host));
+  const secureCookie = (request: FastifyRequest) =>
+    origin.protocol === 'https:' && request.headers.host === origin.host;
   await app.register(cookie);
   await app.register(rateLimit, {
     global: false,
@@ -156,7 +177,7 @@ export async function registerSecurity(
       path: '/',
       httpOnly: true,
       sameSite: 'strict',
-      secure: origin.protocol === 'https:',
+      secure: secureCookie(request),
       maxAge,
     });
     return { user, csrfToken };
@@ -296,7 +317,7 @@ export async function registerSecurity(
       path: '/',
       httpOnly: true,
       sameSite: 'strict',
-      secure: origin.protocol === 'https:',
+      secure: secureCookie(request),
     });
     return reply.code(204).send();
   });

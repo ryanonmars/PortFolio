@@ -6,6 +6,7 @@ const app = await createApp({
   dataDir: process.env.DATA_DIR ?? './data',
   logger: true,
   publicOrigin: process.env.PUBLIC_ORIGIN ?? `http://127.0.0.1:${port}`,
+  localOrigin: process.env.LOCAL_ORIGIN,
 });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
