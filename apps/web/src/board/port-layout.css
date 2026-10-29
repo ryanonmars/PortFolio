@@ -1,0 +1,118 @@
+.port-layout-editor {
+  min-width: 0;
+}
+.port-layout-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 5px;
+  margin: 0 0 12px;
+  color: #b9cbbf;
+  font-size: 12px;
+}
+.port-layout-field input,
+.port-layout-field select {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.port-layout-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 10px;
+}
+.port-layout-preview {
+  box-sizing: border-box;
+  min-width: 0;
+  max-height: 180px;
+  margin: 10px 0;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #101d17;
+  scrollbar-width: thin;
+}
+.port-layout-preview-grid {
+  position: relative;
+  min-width: 100%;
+}
+.port-layout-preview-port {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.port-layout-preview-port .visual-connector {
+  display: block;
+  width: 100%;
+  height: auto;
+  flex-shrink: 0;
+}
+.port-layout-preview-port > span {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #d7e3dc;
+  font-size: 8px;
+  line-height: 11px;
+}
+.port-layout-error,
+.port-layout-note {
+  margin: 8px 0;
+  color: #c0cfc5;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.port-layout-error {
+  color: #e4bca7;
+}
+.port-layout-action {
+  margin: 0 0 12px;
+}
+.port-layout-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.board-inspector .port-layout-presets > button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px;
+  text-align: left;
+  background: #18291f;
+  color: #c4d5c9;
+  border-color: #354f3f;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.port-layout-presets > button[aria-pressed='true'] {
+  border-color: #a3c9b0;
+  background: #233d2e;
+}
+.board-inspector .port-layout-presets > button > span {
+  display: block;
+  font-size: 10px;
+  line-height: 14px;
+}
+.port-layout-miniature {
+  width: 100%;
+  margin: 0;
+  padding: 4px;
+  pointer-events: none;
+}
+.port-layout-miniature .port-layout-preview-port {
+  gap: 0;
+}
+.port-layout-miniature .port-layout-preview-port > span {
+  font-size: 6px;
+  line-height: 7px;
+}

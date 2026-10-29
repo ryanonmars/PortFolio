@@ -11,7 +11,7 @@ import {
   type JsonValue,
 } from '../../../../packages/shared/src/board.js';
 import type { BoardSelection } from './BoardCanvas.js';
-import { addPorts } from './commands.js';
+import { PortLayoutEditor } from './PortLayoutEditor.js';
 import {
   deviceHeaderFieldDefinitions,
   deviceHeaderFieldOrder,
@@ -49,8 +49,6 @@ export function BoardInspector({
 }: Props) {
   const [error, setError] = useState('');
   const fieldPrefix = useId();
-  const [count, setCount] = useState('1');
-  const [portsPerRow, setPortsPerRow] = useState('');
   const element = document.elements.find((item) => item.id === selection.id);
   const port = document.ports.find((item) => item.id === selection.id);
   const cable = document.cables.find((item) => item.id === selection.id);
@@ -418,57 +416,13 @@ export function BoardInspector({
                 </details>
                 <details open>
                   <summary>Ports</summary>
-                  <div className="board-port-picker" aria-label="Port picker">
-                    {kinds.map((kind, index) => (
-                      <button
-                        key={kind}
-                        draggable
-                        title={`Drag ${kindNames[index]} onto a slot, or click to add`}
-                        aria-label={`Add ${kindNames[index]} ports`}
-                        onDragStart={(event) =>
-                          event.dataTransfer.setData(
-                            'application/x-portfolio-port-kind',
-                            JSON.stringify({ kind, deviceId: element.id }),
-                          )
-                        }
-                        onClick={() => {
-                          try {
-                            onChange(
-                              addPorts(
-                                document,
-                                element.id,
-                                kind,
-                                Number(count),
-                                element.properties.face === 'rear'
-                                  ? 'rear'
-                                  : 'front',
-                                portsPerRow.trim()
-                                  ? Number(portsPerRow)
-                                  : undefined,
-                              ),
-                              'Add ports',
-                            );
-                            setError('');
-                          } catch (cause) {
-                            setError(
-                              String(
-                                cause instanceof Error ? cause.message : cause,
-                              ),
-                            );
-                          }
-                        }}
-                      >
-                        {kindNames[index]}
-                      </button>
-                    ))}
-                  </div>
-                  {input('Port quantity', count, setCount, 'number')}
-                  {input(
-                    'Ports per row',
-                    portsPerRow,
-                    setPortsPerRow,
-                    'number',
-                  )}
+                  <PortLayoutEditor
+                    key={`${element.id}:${element.properties.face === 'rear' ? 'rear' : 'front'}`}
+                    document={document}
+                    element={element}
+                    onChange={onChange}
+                    onError={setError}
+                  />
                 </details>
                 <details>
                   <summary>Physical layout</summary>
