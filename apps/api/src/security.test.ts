@@ -16,6 +16,7 @@ const password = 'synthetic-test-password-123';
 async function fixture(
   publicOrigin = 'http://127.0.0.1:3088',
   localOrigin?: string,
+  allowedOrigins?: readonly string[],
 ) {
   const dataDir = mkdtempSync(join(tmpdir(), 'portfolio-auth-'));
   cleanup.push(() => rmSync(dataDir, { recursive: true, force: true }));
@@ -23,6 +24,7 @@ async function fixture(
     dataDir,
     publicOrigin,
     localOrigin,
+    allowedOrigins,
     webRoot: join(dataDir, 'no-web'),
     enableLegacyEditor: true,
   });
@@ -79,6 +81,7 @@ async function fixture(
         dataDir,
         publicOrigin,
         localOrigin,
+        allowedOrigins,
         webRoot: join(dataDir, 'no-web'),
         enableLegacyEditor: true,
       });
@@ -89,12 +92,17 @@ async function fixture(
 describe('admin security and organization', () => {
   it('supports independent HTTPS and loopback login sessions without allowing cross-origin writes', async () => {
     const publicOrigin = 'https://portfolio.example';
-    const client = await fixture(publicOrigin, 'http://127.0.0.1:3090');
+    const client = await fixture(publicOrigin, 'http://127.0.0.1:3090', [
+      'http://192.0.2.64:3090',
+      'https://portfolio.internal.example',
+    ]);
     await client.setup();
     for (const origin of [
       publicOrigin,
       'http://127.0.0.1:3090',
       'http://localhost:3090',
+      'http://192.0.2.64:3090',
+      'https://portfolio.internal.example',
     ]) {
       const host = new URL(origin).host;
       const session = await client.app.inject({
@@ -102,7 +110,9 @@ describe('admin security and organization', () => {
         headers: { host },
       });
       expect(session.statusCode).toBe(200);
-      expect(Boolean(session.cookies[0]?.secure)).toBe(origin === publicOrigin);
+      expect(Boolean(session.cookies[0]?.secure)).toBe(
+        origin.startsWith('https:'),
+      );
       const cookie = `portfolio_session=${session.cookies[0]!.value}`;
       const headers = {
         host,
@@ -135,7 +145,9 @@ describe('admin security and organization', () => {
         payload: { username: 'admin', password },
       });
       expect(login.statusCode).toBe(200);
-      expect(Boolean(login.cookies[0]?.secure)).toBe(origin === publicOrigin);
+      expect(Boolean(login.cookies[0]?.secure)).toBe(
+        origin.startsWith('https:'),
+      );
       const loggedIn = `portfolio_session=${login.cookies[0]!.value}`;
       const logout = await client.app.inject({
         method: 'POST',
@@ -148,7 +160,9 @@ describe('admin security and organization', () => {
         },
       });
       expect(logout.statusCode).toBe(204);
-      expect(Boolean(logout.cookies[0]?.secure)).toBe(origin === publicOrigin);
+      expect(Boolean(logout.cookies[0]?.secure)).toBe(
+        origin.startsWith('https:'),
+      );
     }
     for (const host of ['127.0.0.1:3091', 'attacker.invalid'])
       expect(
@@ -159,6 +173,27 @@ describe('admin security and organization', () => {
           })
         ).statusCode,
       ).toBe(403);
+  });
+
+  it('rejects malformed or conflicting additional origins before serving', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'portfolio-allowed-origins-'));
+    cleanup.push(() => rmSync(dataDir, { recursive: true, force: true }));
+    for (const allowedOrigins of [
+      ['ftp://portfolio.example'],
+      ['https://portfolio.example/path'],
+      ['https://user:password@portfolio.example'],
+      ['https://portfolio.example/'],
+      ['https://portfolio.example?query=1'],
+      ['http://portfolio.example'],
+      ['http://localhost:3090', 'https://127.0.0.1:3090'],
+    ])
+      await expect(
+        createApp({
+          dataDir,
+          publicOrigin: 'https://portfolio.example',
+          allowedOrigins,
+        }),
+      ).rejects.toThrow('ALLOWED_ORIGINS');
   });
 
   it('rejects non-loopback and ambiguous local origins', async () => {

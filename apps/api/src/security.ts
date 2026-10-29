@@ -79,6 +79,7 @@ export async function registerSecurity(
   db: DatabaseSync,
   publicOrigin: string,
   localOrigin?: string,
+  allowedOrigins: readonly string[] = [],
 ) {
   const origin = new URL(publicOrigin);
   if (
@@ -90,6 +91,15 @@ export async function registerSecurity(
     );
   }
   const origins = new Set([origin.origin]);
+  for (const value of allowedOrigins) {
+    const allowed = new URL(value);
+    if (
+      !['http:', 'https:'].includes(allowed.protocol) ||
+      allowed.origin !== value
+    )
+      throw new Error('ALLOWED_ORIGINS must contain exact HTTP(S) origins');
+    origins.add(allowed.origin);
+  }
   if (localOrigin) {
     const local = new URL(localOrigin);
     if (
@@ -113,13 +123,31 @@ export async function registerSecurity(
       origins.add(alias.origin);
     }
   }
-  if (origin.protocol === 'https:' && origins.has(`http://${origin.host}`))
+  if (
+    localOrigin &&
+    origin.protocol === 'https:' &&
+    ['localhost', '127.0.0.1'].includes(origin.hostname) &&
+    origin.port === new URL(localOrigin).port
+  )
     throw new Error(
       'LOCAL_ORIGIN must use a different host from HTTPS PUBLIC_ORIGIN',
     );
   const hosts = new Set([...origins].map((value) => new URL(value).host));
+  const secureHosts = new Map<string, boolean>();
+  for (const value of origins) {
+    const allowed = new URL(value);
+    const secure = allowed.protocol === 'https:';
+    if (
+      secureHosts.has(allowed.host) &&
+      secureHosts.get(allowed.host) !== secure
+    )
+      throw new Error(
+        'ALLOWED_ORIGINS must not mix HTTP and HTTPS on the same host and port',
+      );
+    secureHosts.set(allowed.host, secure);
+  }
   const secureCookie = (request: FastifyRequest) =>
-    origin.protocol === 'https:' && request.headers.host === origin.host;
+    secureHosts.get(request.headers.host ?? '') === true;
   await app.register(cookie);
   await app.register(rateLimit, {
     global: false,

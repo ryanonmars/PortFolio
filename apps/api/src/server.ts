@@ -7,6 +7,9 @@ const app = await createApp({
   logger: true,
   publicOrigin: process.env.PUBLIC_ORIGIN ?? `http://127.0.0.1:${port}`,
   localOrigin: process.env.LOCAL_ORIGIN,
+  allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

@@ -22,6 +22,7 @@ export interface AppOptions {
   logger?: boolean;
   publicOrigin?: string;
   localOrigin?: string;
+  allowedOrigins?: readonly string[];
   /** Test/compatibility harness only; production serves the canonical board editor. */
   enableLegacyEditor?: boolean;
 }
@@ -88,6 +89,7 @@ export async function createApp(options: AppOptions) {
     db,
     options.publicOrigin ?? 'http://127.0.0.1:3088',
     options.localOrigin,
+    options.allowedOrigins,
   ).catch(async (error: unknown) => {
     await app.close();
     throw error;
