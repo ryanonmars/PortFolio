@@ -125,7 +125,7 @@ describe('admin security and organization', () => {
           origin:
             origin === publicOrigin ? 'http://localhost:3090' : publicOrigin,
         },
-        { origin: 'https://attacker.invalid' },
+        { origin: 'https://attacker.example.com' },
         { 'x-csrf-token': 'forged' },
       ])
         expect(
@@ -164,7 +164,7 @@ describe('admin security and organization', () => {
         origin.startsWith('https:'),
       );
     }
-    for (const host of ['127.0.0.1:3091', 'attacker.invalid'])
+    for (const host of ['203.0.113.1:3091', 'attacker.example.com'])
       expect(
         (
           await client.app.inject({
@@ -200,7 +200,7 @@ describe('admin security and organization', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'portfolio-local-origin-'));
     cleanup.push(() => rmSync(dataDir, { recursive: true, force: true }));
     for (const localOrigin of [
-      'http://attacker.invalid',
+      'http://attacker.example.com',
       'https://localhost:3090',
       'http://127.0.0.1:3090/path',
       'http://user:password@localhost:3090',
@@ -226,7 +226,7 @@ describe('admin security and organization', () => {
             method: 'POST',
             path,
             headers: {
-              host: 'attacker.invalid',
+              host: 'attacker.example.com',
               'content-type': 'application/json',
               connection: 'close',
             },
@@ -247,8 +247,8 @@ describe('admin security and organization', () => {
         request.end(JSON.stringify({ username: 'attacker', password }));
       });
     for (const path of [
-      'http://attacker.invalid/api/v1/auth/setup',
-      '//attacker.invalid/api/v1/auth/setup',
+      'http://attacker.example.com/api/v1/auth/setup',
+      '//attacker.example.com/api/v1/auth/setup',
     ]) {
       const response = await sendAbsolute(path);
       expect(response.status).toBe(400);
@@ -350,10 +350,10 @@ describe('admin security and organization', () => {
       { 'x-csrf-token': 'forged' },
       { origin: '' },
       { origin: 'null' },
-      { origin: 'https://attacker.invalid' },
-      { host: 'attacker.invalid' },
+      { origin: 'https://attacker.example.com' },
+      { host: 'attacker.example.com' },
       {
-        host: 'attacker.invalid',
+        host: 'attacker.example.com',
         'x-forwarded-host': '127.0.0.1:3088',
         'x-forwarded-proto': 'http',
       },
@@ -379,7 +379,7 @@ describe('admin security and organization', () => {
       (
         await client.app.inject({
           url: '/api/v1/auth/session',
-          headers: { host: 'attacker.invalid' },
+          headers: { host: 'attacker.example.com' },
         })
       ).statusCode,
     ).toBe(403);
@@ -390,7 +390,7 @@ describe('admin security and organization', () => {
     for (const url of ['/%61pi/v1/auth/session', '/api/%761/auth/session']) {
       const response = await client.app.inject({
         url,
-        headers: { host: 'attacker.invalid' },
+        headers: { host: 'attacker.example.com' },
       });
       expect(response.statusCode).toBe(403);
       expect(response.json()).toEqual({

@@ -16,10 +16,13 @@ const username = 'board-admin';
 const password = 'Synthetic-board-password-42';
 const pageErrors = new WeakMap<Page, string[]>();
 test.use({ actionTimeout: 15_000 });
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, info) => {
   const errors: string[] = [];
   pageErrors.set(page, errors);
   page.on('pageerror', (error) => errors.push(error.message));
+  // Startup cases mock the entire authentication bootstrap and must not use
+  // real sign-in attempts or alter the shared board test account.
+  if (info.title.startsWith('startup ')) return;
   await page.goto('/');
   const setup = await (
     await page.request.get('/api/v1/auth/setup-status')
@@ -39,6 +42,74 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }) => {
   expect(pageErrors.get(page)).toEqual([]);
 });
+
+for (const scenario of [
+  { stage: 'session', failure: 'rejected', setupRequired: true },
+  { stage: 'setup-status', failure: 'rejected', setupRequired: false },
+  { stage: 'session', failure: 'network', setupRequired: false },
+  { stage: 'setup-status', failure: 'network', setupRequired: true },
+] as const) {
+  test(`startup ${scenario.stage} ${scenario.failure} shows the actual failure and retries without guessing account state`, async ({
+    page,
+  }) => {
+    let unavailable = true;
+    let setupReads = 0;
+    for (const stage of ['session', 'setup-status'] as const)
+      await page.route(`**/api/v1/auth/${stage}`, async (route) => {
+        if (stage === 'setup-status') setupReads++;
+        if (unavailable && stage === scenario.stage) {
+          if (scenario.failure === 'network') await route.abort('failed');
+          else
+            await route.fulfill({
+              status: 403,
+              json: {
+                error: {
+                  code: 'INVALID_ORIGIN',
+                  message: 'Request origin is not allowed',
+                },
+              },
+            });
+          return;
+        }
+        await route.fulfill({
+          json:
+            stage === 'session'
+              ? { user: null, csrfToken: 'synthetic-startup-csrf' }
+              : { setupRequired: scenario.setupRequired },
+        });
+      });
+    await page.goto('/');
+    await expect(
+      page.getByRole('heading', { name: 'Unable to open PortFolio.' }),
+    ).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveText(
+      scenario.failure === 'rejected'
+        ? 'Request origin is not allowed'
+        : 'Unable to reach the server. Check the address and try again.',
+    );
+    await expect(page.getByLabel('Username', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('WELCOME BACK', { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByText('FIRST-TIME SETUP', { exact: true }),
+    ).toHaveCount(0);
+    if (scenario.stage === 'session') expect(setupReads).toBe(0);
+    unavailable = false;
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect(
+      page.getByRole('heading', {
+        name: scenario.setupRequired
+          ? 'Set up your local account.'
+          : 'Sign in to PortFolio.',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+}
+
 const unique = (label: string) => `${label} ${randomUUID().slice(0, 8)}`;
 async function browser(page: Page) {
   await expect(page.locator('.board-studio-layout')).toHaveAttribute(

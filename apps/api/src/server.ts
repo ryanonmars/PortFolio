@@ -5,11 +5,14 @@ if (!Number.isInteger(port) || port < 1 || port > 65535)
 const app = await createApp({
   dataDir: process.env.DATA_DIR ?? './data',
   logger: true,
-  publicOrigin: process.env.PUBLIC_ORIGIN ?? `http://127.0.0.1:${port}`,
-  localOrigin: process.env.LOCAL_ORIGIN,
+  publicOrigin: process.env.PUBLIC_ORIGIN || undefined,
+  localOrigin: process.env.LOCAL_ORIGIN || undefined,
   allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
+  trustedHosts: process.env.TRUSTED_HOSTS?.trim()
+    ? process.env.TRUSTED_HOSTS.split(',').map((host) => host.trim())
+    : undefined,
 });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

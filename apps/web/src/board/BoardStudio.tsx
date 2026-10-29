@@ -17,7 +17,7 @@ import {
   type BoardRecord,
   type BoardSummary,
 } from '../../../../packages/shared/src/board.js';
-import { api, sessionRequest } from '../api.js';
+import { api, ApiError, sessionRequest } from '../api.js';
 import { AuthForm } from '../forms.js';
 import { BoardEditor, type BoardEditorHandle } from './BoardEditor.js';
 import type { PortClipboard } from './port-clipboard.js';
@@ -46,7 +46,7 @@ export function BoardStudio() {
   );
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [setup, setSetup] = useState(false);
+  const [setup, setSetup] = useState<boolean | null>(null);
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [groups, setGroups] = useState<BoardGroup[]>([]);
   const [active, setActive] = useState<BoardRecord | null>(null);
@@ -237,6 +237,7 @@ export function BoardStudio() {
         if (!valid()) return;
         authUser.current = session.user;
         setUser(session.user);
+        if (session.user) setSetup(false);
         if (!session.user) {
           setPortClipboard(null);
           const result = await api<{ setupRequired: boolean }>(
@@ -268,7 +269,9 @@ export function BoardStudio() {
       .catch((cause) => {
         if (valid())
           setError(
-            cause instanceof Error ? cause.message : 'Unable to load PortFolio',
+            cause instanceof ApiError
+              ? cause.message
+              : 'Unable to reach the server. Check the address and try again.',
           );
       })
       .finally(() => {
@@ -646,6 +649,17 @@ export function BoardStudio() {
       {error && <p role="alert">{error}</p>}
       {loading ? (
         <p role="status">Loading…</p>
+      ) : setup === null ? (
+        <section className="auth-panel">
+          <h1>Unable to open PortFolio.</h1>
+          <button
+            className="primary"
+            type="button"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </section>
       ) : (
         <AuthForm setup={setup} onAuthenticate={authenticate} />
       )}

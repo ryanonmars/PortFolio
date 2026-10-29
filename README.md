@@ -10,7 +10,9 @@ A self-hosted visual documentation board for network equipment. Create a board, 
 docker compose up -d --build
 ```
 
-Open `http://localhost:3088` and create the administrator account; there are no default credentials. Compose publishes port 3088 on all host interfaces and stores persistent data in `./data`. For LAN access, set `PUBLIC_ORIGIN` in `.env` to the exact address used by your browser, including the port (for example, `http://192.0.2.10:3088`). Localhost access remains available. Set `BIND_ADDRESS=127.0.0.1` for loopback-only publishing. The container runs without root, with a read-only filesystem and dropped capabilities. Local builds use `ghcr.io/ryanonmars/portfolio:local`.
+Open `http://localhost:3088`, the server's private IP address, or a local hostname such as `http://dockge.truenas:3088`. Create the administrator account; there are no default credentials. Direct HTTP LAN access needs no origin configuration. Compose publishes port 3088 on all host interfaces and stores persistent data in `./data`. Set `BIND_ADDRESS=127.0.0.1` for loopback-only publishing. The container runs without root, with a read-only filesystem and dropped capabilities. Local builds use `ghcr.io/ryanonmars/portfolio:local`.
+
+Automatic LAN host handling is an unreleased source change after `v0.1.0`. The published `v0.1.0` image retains its explicit-origin policy until a new image release is published.
 
 On Linux, create the data directory before startup with ownership for container UID/GID 1000:
 
@@ -28,18 +30,27 @@ sudo install -d -m 0700 -o 1000 -g 1000 /mnt/tank/configs/portfolio
 
 On TrueNAS datasets with managed ACLs, grant UID/GID 1000 access through the dataset ACL instead of replacing existing permissions. Keep application data separate from the stack folder. The bind mount deliberately refuses to create a missing data directory.
 
-Set `PUBLIC_ORIGIN` to your server's actual LAN URL before deployment, then open that URL and create the administrator account. No reverse proxy is required. Docker listens on internal port 3088 and persists SQLite and backups under `/data`.
+Open the server's LAN IP or local hostname and create the administrator account. No `PUBLIC_ORIGIN` setting or reverse proxy is required for basic HTTP LAN access. Docker listens on internal port 3088 and persists SQLite and backups under `/data`.
 
-| Variable          | Default                       | Purpose                                                                                    |
-| ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
-| `IMAGE_TAG`       | `v0.1.0`                      | Published image version; pin production deployments. `latest` tracks stable releases only. |
-| `PORT`            | `3088`                        | Published host port; internal port remains 3088.                                           |
-| `BIND_ADDRESS`    | `0.0.0.0`                     | Host interfaces; use `127.0.0.1` for local access only.                                    |
-| `DATA_PATH`       | `/mnt/tank/configs/portfolio` | Existing writable host directory mounted at `/data`.                                       |
-| `PUBLIC_ORIGIN`   | `http://localhost:3088`       | Exact browser URL; replace with the server IP/hostname and published port for LAN access.  |
-| `ALLOWED_ORIGINS` | empty                         | Optional additional exact HTTP(S) origins, separated by commas.                            |
+The deployment file currently pins published `v0.1.0`, which still requires `PUBLIC_ORIGIN` set to your exact LAN URL. The automatic behavior above applies to a build of the updated source until the next image release.
 
-Compose configures HTTP localhost/127.0.0.1 access automatically using `LOCAL_ORIGIN`. Native development can set that variable explicitly. Each write requires a trusted Host, a matching Origin and a session CSRF token. Arbitrary hostnames, wildcard origins and forwarded-header overrides are rejected. HTTP and HTTPS cannot share the same configured host and port; HTTPS origins receive Secure cookies, while direct HTTP LAN origins use host-only HTTP cookies. For an HTTPS reverse proxy, preserve the browser's Host, set `PUBLIC_ORIGIN=https://your-hostname`, and list any additional LAN address in `ALLOWED_ORIGINS`. Restrict the Docker binding or firewall to the proxy when appropriate. No tunnel, router port forwarding or public DNS setup is created by this stack.
+| Variable          | Default                       | Purpose                                                                                                      |
+| ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `IMAGE_TAG`       | `v0.1.0`                      | Published version; pin production deployments. `latest` follows stable releases.                             |
+| `PORT`            | `3088`                        | Published host port; internal port remains 3088.                                                             |
+| `BIND_ADDRESS`    | `0.0.0.0`                     | Host interfaces; use `127.0.0.1` for local access only.                                                      |
+| `DATA_PATH`       | `/mnt/tank/configs/portfolio` | Existing writable host directory mounted at `/data`.                                                         |
+| `PUBLIC_ORIGIN`   | optional                      | Exact HTTPS reverse-proxy URL or explicitly trusted public-domain origin.                                    |
+| `ALLOWED_ORIGINS` | empty                         | Optional additional exact HTTP(S) origins, separated by commas.                                              |
+| `TRUSTED_HOSTS`   | empty                         | Optional strict hostnames/IPs, separated by commas; a port restricts that entry. Blank keeps automatic mode. |
+
+The default Host policy accepts loopback, RFC1918, link-local, Tailscale/CGNAT IPv4 addresses, local IPv6 addresses, and local DNS namespaces such as `.local`, `.internal`, `.home.arpa`, or `.truenas`. It uses a bundled [IANA root-zone snapshot](https://data.iana.org/TLD/tlds-alpha-by-domain.txt) to distinguish local suffixes from delegated public DNS namespaces. It makes no DNS lookups or external requests at runtime. Public-domain names remain blocked unless explicitly trusted, even when they resolve to a private address; this prevents the usual public-domain DNS-rebinding attack. `.onion` and `.alt` are not automatically trusted.
+
+Custom local suffixes rely on the snapshot remaining current: a newly delegated public TLD needs a snapshot update in a future release. Refresh the snapshot and its integrity test when releasing. Deployments that need an enduring fixed Host boundary can set `TRUSTED_HOSTS`, for example `dockge.truenas,192.0.2.10:3088,localhost`. This replaces automatic LAN acceptance; configured origins must also fit that strict list. Entries without ports allow any valid port for that exact hostname; wildcards are unsupported. Malformed nonblank settings fail startup.
+
+Each API request validates its Host. Any supplied Origin must exactly match the request's expected origin, including scheme and port; writes also require the existing session CSRF token. Cookies remain host-only, HttpOnly and SameSite=Strict. Secure is enabled for actual TLS or an exact configured HTTPS proxy authority, never from untrusted forwarded headers. For an HTTPS reverse proxy or public Tailscale hostname, preserve the browser's Host and set `PUBLIC_ORIGIN=https://your-hostname`. Additional exact public origins can go in `ALLOWED_ORIGINS`. These settings augment automatic LAN access unless strict hosts are enabled. Split-DNS names under public TLDs need explicit trust as well. `LOCAL_ORIGIN` remains an optional compatibility setting; localhost needs no registration in automatic mode. Compose leaves optional origin variables unset unless configured; strict hosts therefore need no hidden loopback exceptions.
+
+Keep Docker binding or firewall restrictions appropriate to the network. No tunnel, router port forwarding or public DNS setup is created by this stack.
 
 To upgrade, back up the data, change `IMAGE_TAG` to a new stable version, then use Dockge's pull/recreate actions or:
 

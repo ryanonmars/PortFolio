@@ -11,6 +11,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { credentialsSchema } from '../../../packages/shared/src/index.js';
 import { ApiError, validate } from './errors.js';
+import { createOriginPolicy } from './origin-policy.js';
 
 const cookieName = 'portfolio_session';
 const authenticatedAge = 7 * 24 * 60 * 60;
@@ -77,77 +78,25 @@ export interface User {
 export async function registerSecurity(
   app: FastifyInstance,
   db: DatabaseSync,
-  publicOrigin: string,
+  publicOrigin?: string,
   localOrigin?: string,
   allowedOrigins: readonly string[] = [],
+  trustedHosts?: readonly string[],
 ) {
-  const origin = new URL(publicOrigin);
-  if (
-    !['http:', 'https:'].includes(origin.protocol) ||
-    origin.origin !== publicOrigin
-  ) {
-    throw new Error(
-      'PUBLIC_ORIGIN must be an HTTP(S) origin without a trailing slash',
+  const policy = createOriginPolicy({
+    publicOrigin,
+    localOrigin,
+    allowedOrigins,
+    trustedHosts,
+  });
+  const requestOriginFor = (request: FastifyRequest) =>
+    policy.originFor(
+      request.headers.host,
+      'encrypted' in request.raw.socket &&
+        request.raw.socket.encrypted === true,
     );
-  }
-  const origins = new Set([origin.origin]);
-  for (const value of allowedOrigins) {
-    const allowed = new URL(value);
-    if (
-      !['http:', 'https:'].includes(allowed.protocol) ||
-      allowed.origin !== value
-    )
-      throw new Error('ALLOWED_ORIGINS must contain exact HTTP(S) origins');
-    origins.add(allowed.origin);
-  }
-  if (localOrigin) {
-    const local = new URL(localOrigin);
-    if (
-      local.protocol !== 'http:' ||
-      !['127.0.0.1', 'localhost'].includes(local.hostname) ||
-      local.origin !== localOrigin ||
-      (local.host === origin.host && local.protocol !== origin.protocol)
-    )
-      throw new Error('LOCAL_ORIGIN must be an HTTP loopback origin');
-    origins.add(local.origin);
-  }
-  for (const value of [...origins]) {
-    const candidate = new URL(value);
-    if (
-      candidate.protocol === 'http:' &&
-      ['127.0.0.1', 'localhost'].includes(candidate.hostname)
-    ) {
-      const alias = new URL(candidate);
-      alias.hostname =
-        candidate.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
-      origins.add(alias.origin);
-    }
-  }
-  if (
-    localOrigin &&
-    origin.protocol === 'https:' &&
-    ['localhost', '127.0.0.1'].includes(origin.hostname) &&
-    origin.port === new URL(localOrigin).port
-  )
-    throw new Error(
-      'LOCAL_ORIGIN must use a different host from HTTPS PUBLIC_ORIGIN',
-    );
-  const hosts = new Set([...origins].map((value) => new URL(value).host));
-  const secureHosts = new Map<string, boolean>();
-  for (const value of origins) {
-    const allowed = new URL(value);
-    const secure = allowed.protocol === 'https:';
-    if (
-      secureHosts.has(allowed.host) &&
-      secureHosts.get(allowed.host) !== secure
-    )
-      throw new Error(
-        'ALLOWED_ORIGINS must not mix HTTP and HTTPS on the same host and port',
-      );
-    secureHosts.set(allowed.host, secure);
-  }
   const secureCookie = (request: FastifyRequest) =>
-    secureHosts.get(request.headers.host ?? '') === true;
+    requestOriginFor(request)?.startsWith('https:') === true;
   await app.register(cookie);
   await app.register(rateLimit, {
     global: false,
@@ -228,19 +177,23 @@ export async function registerSecurity(
     )
       return;
     reply.header('Cache-Control', 'no-store');
-    if (!hosts.has(request.headers.host ?? ''))
+    const expectedOrigin = requestOriginFor(request);
+    if (!expectedOrigin)
       throw new ApiError(
         403,
         'INVALID_ORIGIN',
         'Request origin is not allowed',
       );
-    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return;
     const requestOrigin = request.headers.origin;
-    if (
-      !requestOrigin ||
-      !origins.has(requestOrigin) ||
-      new URL(requestOrigin).host !== request.headers.host
-    ) {
+    if (requestOrigin !== undefined && requestOrigin !== expectedOrigin) {
+      throw new ApiError(
+        403,
+        'INVALID_ORIGIN',
+        'Request origin is not allowed',
+      );
+    }
+    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return;
+    if (!requestOrigin) {
       throw new ApiError(
         403,
         'INVALID_ORIGIN',
