@@ -152,7 +152,7 @@ export function renderedBoardSvg(
     }
   }
   for (const path of world.querySelectorAll<SVGGraphicsElement>(
-    '.board-cable-line',
+    '.board-cable-line,.board-summary-link-line,.board-summary-link-head',
   )) {
     const rect = position(path.getBoundingClientRect());
     include(rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6);

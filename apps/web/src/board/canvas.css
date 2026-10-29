@@ -338,6 +338,23 @@
 .board-network-summary .board-network-notes {
   margin-top: 12px;
 }
+.board-summary-link-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: -1;
+}
+.board-summary-link-layer path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .board-cable-layer,
 .board-guide-layer {
   position: absolute;

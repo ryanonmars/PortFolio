@@ -752,3 +752,226 @@ test('linked Summary stays synchronized, scrolls inside fixed dimensions and pre
   await expect(summary).toContainText('Peer Switch');
   expect(errors).toEqual([]);
 });
+
+test('Summary arrows avoid containers and follow their linked device through edits, zoom and export', async ({
+  page,
+}, info) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const document = emptyBoardDocument();
+  document.showCables = false;
+  document.viewport = { x: 16, y: 16, zoom: 0.28 };
+  document.elements = [
+    {
+      id: 'summary',
+      type: 'summary',
+      name: 'Router Summary',
+      x: 40,
+      y: 220,
+      width: 260,
+      height: 240,
+      z: 1,
+      color: '#e5a04a',
+      properties: { linkedDeviceId: 'target' },
+    },
+    {
+      id: 'target',
+      type: 'device',
+      name: 'Linked Router',
+      x: 960,
+      y: 220,
+      width: 240,
+      height: 240,
+      z: 0,
+      color: '#428deb',
+      properties: { deviceType: 'Router', manufacturer: 'Synthetic Maker' },
+    },
+    {
+      id: 'blocker',
+      type: 'network',
+      name: 'Keep this data clear',
+      x: 480,
+      y: 180,
+      width: 240,
+      height: 320,
+      z: 2,
+      color: '',
+      properties: {},
+    },
+  ];
+  const board = await create(page, document);
+  await open(page, board.id);
+  const arrow = page.locator(
+    '.board-summary-link[data-summary-id="summary"][data-target-id="target"]',
+  );
+  const line = arrow.locator('.board-summary-link-line');
+  await expect(line).toHaveCount(1);
+  await expect(arrow.locator('.board-summary-link-head')).toHaveCount(1);
+  await expect(page.locator('.board-cable-layer')).toHaveCount(0);
+
+  async function route() {
+    return line.evaluate((node) => {
+      const path = node as SVGPathElement;
+      const length = path.getTotalLength();
+      return {
+        d: path.getAttribute('d')!,
+        color: getComputedStyle(path).stroke,
+        points: Array.from(
+          { length: Math.ceil(length / 2) + 1 },
+          (_, index) => {
+            const point = path.getPointAtLength(Math.min(length, index * 2));
+            return { x: point.x, y: point.y };
+          },
+        ),
+        start: { x: path.getPointAtLength(0).x, y: path.getPointAtLength(0).y },
+        end: {
+          x: path.getPointAtLength(length).x,
+          y: path.getPointAtLength(length).y,
+        },
+      };
+    });
+  }
+  async function checkRoute() {
+    const current = (await read(page, board.id)).document;
+    const blocker = current.elements.find(
+      (element) => element.id === 'blocker',
+    )!;
+    const result = await route();
+    expect(result.color).toBe('rgb(229, 160, 74)');
+    expect(
+      result.points.some(
+        (point) =>
+          point.x > blocker.x &&
+          point.x < blocker.x + blocker.width &&
+          point.y > blocker.y &&
+          point.y < blocker.y + blocker.height,
+      ),
+    ).toBe(false);
+    expect(
+      await page
+        .locator('.board-summary-link-layer')
+        .evaluate((node) => getComputedStyle(node).pointerEvents),
+    ).toBe('none');
+    return result;
+  }
+  let previous = await checkRoute();
+  expect(previous.start.x).toBe(300);
+  expect(previous.end.x).toBe(960);
+  expect(previous.end.y).toBeGreaterThanOrEqual(220);
+  expect(previous.end.y).toBeLessThanOrEqual(460);
+
+  // Recompute during the drag preview, before the edited document is saved.
+  const header = page.locator(
+    '[data-board-element-id="summary"] .board-element-header',
+  );
+  const headerBox = await header.boundingBox();
+  if (!headerBox) throw new Error('Summary header missing');
+  await page.keyboard.down('Alt');
+  await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + 3);
+  await page.mouse.down();
+  await page.mouse.move(
+    headerBox.x + headerBox.width / 2 + 18,
+    headerBox.y + 19,
+    { steps: 5 },
+  );
+  await expect(line).not.toHaveAttribute('d', previous.d);
+  expect(
+    (await read(page, board.id)).document.elements.find(
+      (element) => element.id === 'summary',
+    )!.x,
+  ).toBe(40);
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await saved(page);
+  const dragged = (await read(page, board.id)).document.elements.find(
+    (element) => element.id === 'summary',
+  )!;
+  expect([dragged.x, dragged.y]).not.toEqual([40, 220]);
+  previous = await checkRoute();
+
+  async function replace(change: (document: BoardDocument) => void) {
+    const current = await read(page, board.id);
+    const document = structuredClone(current.document);
+    change(document);
+    const auth = await (await page.request.get('/api/v1/auth/session')).json();
+    const response = await page.request.patch(`/api/v1/boards/${board.id}`, {
+      headers: {
+        Origin: new URL(page.url()).origin,
+        'x-csrf-token': auth.csrfToken,
+      },
+      data: { rowVersion: current.rowVersion, document },
+    });
+    expect(response.status()).toBe(200);
+    await page.reload();
+    await saved(page);
+    await collapse(page);
+  }
+  for (const change of [
+    (document: BoardDocument) => {
+      document.elements.find((element) => element.id === 'blocker')!.y -= 120;
+    },
+    (document: BoardDocument) => {
+      document.elements.find((element) => element.id === 'target')!.y += 260;
+    },
+    (document: BoardDocument) => {
+      document.elements.find((element) => element.id === 'summary')!.x -= 80;
+    },
+    (document: BoardDocument) => {
+      document.elements.find((element) => element.id === 'target')!.width +=
+        160;
+      document.elements.find((element) => element.id === 'summary')!.height +=
+        160;
+    },
+  ]) {
+    await replace(change);
+    const next = await checkRoute();
+    expect(next.d).not.toBe(previous.d);
+    previous = next;
+  }
+  const persistedPath = previous.d;
+  await page.reload();
+  await saved(page);
+  await collapse(page);
+  expect((await checkRoute()).d).toBe(persistedPath);
+  await replace((document) => {
+    document.viewport.zoom = 0.4;
+  });
+  expect((await checkRoute()).d).toBe(persistedPath);
+
+  await mkdir('.tmp/qa-media/summary', { recursive: true });
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await saved(page);
+  await page.screenshot({
+    path: `.tmp/qa-media/summary/${info.project.name}-arrow-routing.png`,
+  });
+  await page.getByLabel('Board menu', { exact: true }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export image', exact: true }).click();
+  const svg = await readFile((await (await download).path())!, 'utf8');
+  expect(svg).toContain(`d="${persistedPath}"`);
+  const head = await arrow
+    .locator('.board-summary-link-head')
+    .getAttribute('d');
+  expect(svg).toContain(`d="${head}"`);
+  const bounds = await page.evaluate(
+    (svg) =>
+      new DOMParser()
+        .parseFromString(svg, 'image/svg+xml')
+        .documentElement.getAttribute('viewBox')!
+        .split(/[ ,]+/)
+        .map(Number),
+    svg,
+  );
+  for (const point of previous.points) {
+    expect(point.x).toBeGreaterThanOrEqual(bounds[0]!);
+    expect(point.x).toBeLessThanOrEqual(bounds[0]! + bounds[2]!);
+    expect(point.y).toBeGreaterThanOrEqual(bounds[1]!);
+    expect(point.y).toBeLessThanOrEqual(bounds[1]! + bounds[3]!);
+  }
+  await replace((document) => {
+    document.elements.find(
+      (element) => element.id === 'summary',
+    )!.properties.linkedDeviceId = '';
+  });
+  await expect(arrow).toHaveCount(0);
+});

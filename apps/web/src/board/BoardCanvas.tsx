@@ -20,6 +20,7 @@ import {
 } from '../../../../packages/shared/src/board.js';
 import { PortHoverTooltip } from './PortHoverTooltip.js';
 import { DeviceSummary } from './DeviceSummary.js';
+import { SummaryLinks } from './SummaryLinks.js';
 import { NetworkSummary } from './NetworkSummary.js';
 import { DeviceHeader } from './DeviceHeader.js';
 import { deviceHeaderFields } from './device-header-fields.js';
@@ -1450,6 +1451,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
         }}
       >
+        <SummaryLinks elements={visible.elements} />
         {visible.elements
           .slice()
           .sort((a, b) => a.z - b.z)
