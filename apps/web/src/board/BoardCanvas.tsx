@@ -47,6 +47,7 @@ import {
 } from './geometry.js';
 import { enclosedElementIds, marqueeRect, moveSelection } from './selection.js';
 import type { Rect } from './geometry.js';
+import { portSelectionRange } from './port-clipboard.js';
 import './canvas.css';
 export { fitViewport, getPortPoint, minimumDeviceSize } from './geometry.js';
 export type BoardSelection = {
@@ -63,6 +64,14 @@ export interface BoardCanvasProps {
   onSelect: (selection: BoardSelection | null) => void;
   onGestureChange?: (active: boolean) => void;
   fitToken?: number;
+  portMultiSelect?: boolean;
+  portMenuOpen?: boolean;
+  onPortContextMenu?: (
+    portId: string,
+    point: Point,
+    summary: string,
+    touch: boolean,
+  ) => void;
 }
 type Gesture = {
   type: 'pan' | 'move' | 'resize' | 'port' | 'marquee';
@@ -114,8 +123,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
     onSelect,
     onGestureChange,
     fitToken,
+    portMultiSelect = false,
+    portMenuOpen = false,
+    onPortContextMenu,
   } = props;
   const root = useRef<HTMLDivElement>(null);
+  const portAnchor = useRef<string | null>(null);
   const latest = useRef(props);
   const gesture = useRef<Gesture | null>(null);
   const summaryScroll = useRef<{
@@ -203,7 +216,16 @@ export function BoardCanvas(props: BoardCanvasProps) {
       )
         return;
       suppressHoldClick.current = candidate.portId;
-      setTouchSummary(candidate.portId);
+      portAnchor.current = candidate.portId;
+      if (latest.current.onPortContextMenu) {
+        latest.current.onPortContextMenu(
+          candidate.portId,
+          candidate.start,
+          summaryFor(port),
+          true,
+        );
+        setTouchSummary(null);
+      } else setTouchSummary(candidate.portId);
       setHoverPort(null);
       holdTimer.current = null;
     }, 450);
@@ -425,7 +447,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }
 
   const summaryPort =
-    !disabled && !preview && !rename && tool !== 'pan'
+    !disabled && !preview && !rename && !portMenuOpen && tool !== 'pan'
       ? visible.ports.find((port) => port.id === (touchSummary ?? hoverPort))
       : undefined;
   const summaryPoint = summaryPort
@@ -860,10 +882,48 @@ export function BoardCanvas(props: BoardCanvasProps) {
       active.type === 'resize' ? 'Resize object' : 'Move object',
     );
   }
-  function selectPort(port: BoardPort) {
+  function selectPort(
+    port: BoardPort,
+    modifiers = { shiftKey: false, metaKey: false, ctrlKey: false },
+  ) {
     if (disabled) return;
     if (tool !== 'cable') {
-      onSelect({ type: 'port', id: port.id });
+      const current =
+        selection?.type === 'port' ? (selection.ids ?? [selection.id]) : [];
+      const toggle = modifiers.metaKey || modifiers.ctrlKey || portMultiSelect;
+      let ids: string[];
+      if (
+        modifiers.shiftKey &&
+        portAnchor.current &&
+        current.includes(portAnchor.current)
+      ) {
+        const range = portSelectionRange(document, portAnchor.current, port.id);
+        ids = range.length
+          ? toggle
+            ? [...new Set([...current, ...range])]
+            : range
+          : [port.id];
+        if (!range.length) portAnchor.current = port.id;
+      } else if (toggle) {
+        ids = current.includes(port.id)
+          ? current.filter((id) => id !== port.id)
+          : [...current, port.id];
+        portAnchor.current = ids.includes(port.id)
+          ? port.id
+          : (ids.at(-1) ?? null);
+      } else {
+        ids = [port.id];
+        portAnchor.current = port.id;
+      }
+      onSelect(
+        ids.length
+          ? {
+              type: 'port',
+              id: ids.includes(port.id) ? port.id : ids.at(-1)!,
+              ids,
+            }
+          : null,
+      );
       return;
     }
     if (!sourcePort) {
@@ -1388,7 +1448,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
                     {ports.map((port) => {
                       const rect = portRect(element, port);
                       const selectedPort =
-                        selection?.type === 'port' && selection.id === port.id;
+                        selection?.type === 'port' &&
+                        (selection.ids ?? [selection.id]).includes(port.id);
                       return (
                         <div
                           className="board-port"
@@ -1488,6 +1549,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                             data-port-id={port.id}
                             aria-label={`${element.name} ${summaryFor(port)}`}
                             disabled={disabled}
+                            aria-pressed={selectedPort}
                             aria-describedby={
                               summaryPort?.id === port.id && summaryPoint
                                 ? summaryId
@@ -1505,10 +1567,28 @@ export function BoardCanvas(props: BoardCanvasProps) {
                             }}
                             onContextMenu={(event) => {
                               if (
-                                lastPointerType.current === 'touch' &&
-                                tool === 'select'
+                                disabled ||
+                                gesture.current ||
+                                pinch.current ||
+                                rename ||
+                                wheelViewport.current ||
+                                root.current?.classList.contains('space-pan') ||
+                                (tool !== 'select' && tool !== 'ports') ||
+                                !onPortContextMenu
                               )
-                                event.preventDefault();
+                                return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              cancelHold();
+                              setHoverPort(null);
+                              setTouchSummary(null);
+                              portAnchor.current = port.id;
+                              onPortContextMenu(
+                                port.id,
+                                { x: event.clientX, y: event.clientY },
+                                summaryFor(port),
+                                lastPointerType.current === 'touch',
+                              );
                             }}
                             onClick={(event) => {
                               event.stopPropagation();
@@ -1518,9 +1598,38 @@ export function BoardCanvas(props: BoardCanvasProps) {
                                 return;
                               }
                               setTouchSummary(null);
-                              selectPort(port);
+                              selectPort(port, event);
                             }}
                             onKeyDown={(event) => {
+                              if (
+                                (event.key === 'ContextMenu' ||
+                                  (event.shiftKey && event.key === 'F10')) &&
+                                !disabled &&
+                                !gesture.current &&
+                                !pinch.current &&
+                                !rename &&
+                                !wheelViewport.current &&
+                                !root.current?.classList.contains(
+                                  'space-pan',
+                                ) &&
+                                onPortContextMenu &&
+                                (tool === 'select' || tool === 'ports')
+                              ) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                const box =
+                                  event.currentTarget.getBoundingClientRect();
+                                portAnchor.current = port.id;
+                                setHoverPort(null);
+                                setTouchSummary(null);
+                                onPortContextMenu(
+                                  port.id,
+                                  { x: box.left, y: box.bottom },
+                                  summaryFor(port),
+                                  false,
+                                );
+                                return;
+                              }
                               if (event.key === 'F2' && !disabled) {
                                 event.preventDefault();
                                 event.stopPropagation();

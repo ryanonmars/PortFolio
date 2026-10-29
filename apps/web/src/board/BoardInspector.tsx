@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, useId, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  useId,
+  type ReactNode,
+} from 'react';
 import {
   minimumBoardDeviceSize,
   boardPortCapacity,
@@ -11,6 +18,8 @@ import {
   type JsonValue,
 } from '../../../../packages/shared/src/board.js';
 import type { BoardSelection } from './BoardCanvas.js';
+import type { PortSettingKey } from './port-clipboard.js';
+import './port-field-copy.css';
 import { PortLayoutEditor } from './PortLayoutEditor.js';
 import {
   deviceHeaderFieldDefinitions,
@@ -33,9 +42,24 @@ type Props = {
   onClose: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onCopyPortField?: (
+    port: BoardPort,
+    field: PortSettingKey,
+    customKey?: string,
+  ) => void;
 };
 const kinds: BoardPort['kind'][] = ['rj45', 'sfp', 'sfp_plus', 'qsfp', 'other'];
 const kindNames = ['RJ45', 'SFP', 'SFP+', 'QSFP', 'Custom'];
+const portCopyFields: Record<PortHelpLabel, PortSettingKey> = {
+  'Port Purpose': 'role',
+  Speed: 'speed',
+  'Link Status': 'linkState',
+  'Native VLAN': 'nativeVlan',
+  'Tagged VLANs': 'taggedVlans',
+  PVID: 'pvid',
+  'Interface IP / Address': 'address',
+  'External Connection': 'externalDestination',
+};
 const record = (value: JsonValue | undefined): Record<string, JsonValue> =>
   value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 
@@ -46,6 +70,7 @@ export function BoardInspector({
   onClose,
   onDelete,
   onDuplicate,
+  onCopyPortField,
 }: Props) {
   const [error, setError] = useState('');
   const fieldPrefix = useId();
@@ -169,6 +194,37 @@ export function BoardInspector({
     );
     setError('');
   }
+  function fieldLabel(label: string, id: string, field?: PortSettingKey) {
+    const copy =
+      port && field && onCopyPortField
+        ? () => onCopyPortField(port, field)
+        : undefined;
+    return (
+      <>
+        <label
+          htmlFor={id}
+          className={copy ? 'board-copyable-field-label' : undefined}
+          onClick={copy}
+        >
+          {label}
+        </label>
+        {copy && <CopyFieldButton label={label} onCopy={copy} />}
+      </>
+    );
+  }
+  function copyablePortField(
+    label: string,
+    field: PortSettingKey,
+    render: (id: string) => ReactNode,
+  ) {
+    const id = `${fieldPrefix}-${field}`;
+    return (
+      <div className="board-inspector-field">
+        <div className="board-field-label">{fieldLabel(label, id, field)}</div>
+        {render(id)}
+      </div>
+    );
+  }
   function input(
     label: string,
     value: string | number,
@@ -196,7 +252,7 @@ export function BoardInspector({
     return (
       <div className="board-inspector-field">
         <div className="board-field-label">
-          <label htmlFor={id}>{label}</label>
+          {fieldLabel(label, id, portCopyFields[label])}
           <FieldHelp id={helpId} label={label}>
             {portHelp[label]}
           </FieldHelp>
@@ -252,7 +308,17 @@ export function BoardInspector({
     fields: Record<string, JsonValue>,
     update: (fields: Record<string, JsonValue>) => void,
   ) {
-    return <CustomProperties fields={fields} onChange={update} />;
+    return (
+      <CustomProperties
+        fields={fields}
+        onChange={update}
+        onCopy={
+          port && onCopyPortField
+            ? (key) => onCopyPortField(port, 'customFields', key)
+            : undefined
+        }
+      />
+    );
   }
   const title =
     element?.name ||
@@ -652,9 +718,9 @@ export function BoardInspector({
             {input('Port name', port.name, (name) =>
               changePort({ name }, 'name'),
             )}
-            <label>
-              Connector type
+            {copyablePortField('Connector type', 'kind', (id) => (
               <select
+                id={id}
                 aria-label="Connector type"
                 value={port.kind}
                 onChange={(event) =>
@@ -670,7 +736,7 @@ export function BoardInspector({
                   </option>
                 ))}
               </select>
-            </label>
+            ))}
             {portInput(
               'Port Purpose',
               port.role,
@@ -736,12 +802,17 @@ export function BoardInspector({
               (externalDestination) =>
                 changePort({ externalDestination }, 'externalDestination'),
             )}
-            {input(
-              'Port color',
-              port.color || '#788790',
-              (color) => changePort({ color }, 'color'),
-              'color',
-            )}
+            {copyablePortField('Port color', 'color', (id) => (
+              <input
+                id={id}
+                aria-label="Port color"
+                type="color"
+                value={port.color || '#788790'}
+                onChange={(event) =>
+                  changePort({ color: event.target.value }, 'color')
+                }
+              />
+            ))}
             {port.color && (
               <button onClick={() => changePort({ color: '' }, 'color')}>
                 Use network color
@@ -802,9 +873,17 @@ export function BoardInspector({
                 'number',
               )}
             </details>
-            {notes('Port notes', port.notes, (value) =>
-              changePort({ notes: value }, 'notes'),
-            )}
+            {copyablePortField('Port notes', 'notes', (id) => (
+              <textarea
+                id={id}
+                aria-label="Port notes"
+                rows={3}
+                value={port.notes}
+                onChange={(event) =>
+                  changePort({ notes: event.target.value }, 'notes')
+                }
+              />
+            ))}
             {custom(port.customFields, (fields) =>
               changePort({ customFields: fields }, 'customFields'),
             )}
@@ -922,59 +1001,103 @@ export function BoardInspector({
   );
 }
 
+function CopyFieldButton({
+  label,
+  onCopy,
+}: {
+  label: string;
+  onCopy: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="board-port-field-copy"
+      aria-label={`Copy ${label}`}
+      title={`Copy ${label}`}
+      onClick={onCopy}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+        <path d="M10.5 5.5V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2" />
+      </svg>
+    </button>
+  );
+}
+
 function CustomProperties({
   fields,
   onChange,
+  onCopy,
 }: {
   fields: Record<string, JsonValue>;
   onChange: (fields: Record<string, JsonValue>) => void;
+  onCopy?: (key: string) => void;
 }) {
+  const fieldId = useId();
   return (
     <details>
       <summary>Custom fields</summary>
-      {Object.entries(fields).map(([key, value]) => (
-        <div className="board-custom-row" key={key}>
-          <input
-            aria-label="Custom field name"
-            defaultValue={key}
-            onBlur={(event) => {
-              const next = event.target.value.trim();
-              if (next && (next === key || !Object.hasOwn(fields, next))) {
-                onChange(
-                  Object.fromEntries(
-                    Object.entries(fields).map(([name, item]) => [
-                      name === key ? next : name,
-                      item,
-                    ]),
-                  ),
-                );
-              } else event.target.value = key;
-            }}
-          />
-          <DraftText
-            label={`Custom value ${key}`}
-            value={typeof value === 'string' ? value : JSON.stringify(value)}
-            onChange={(raw) => {
-              let next: JsonValue = raw;
-              try {
-                next = JSON.parse(raw) as JsonValue;
-              } catch {
-                /* Keep plain text. */
-              }
-              onChange({ ...fields, [key]: next });
-            }}
-          />
-          <button
-            aria-label={`Remove custom field ${key}`}
-            onClick={() => {
-              const next = { ...fields };
-              delete next[key];
-              onChange(next);
-            }}
-          >
-            ×
-          </button>
-        </div>
+      {Object.entries(fields).map(([key, value], index) => (
+        <Fragment key={key}>
+          {onCopy && (
+            <div className="board-field-label board-custom-copy-label">
+              <label
+                htmlFor={`${fieldId}-${index}`}
+                className="board-copyable-field-label"
+                onClick={() => onCopy(key)}
+              >
+                {key || 'Custom field'}
+              </label>
+              <CopyFieldButton
+                label={`custom field ${key}`}
+                onCopy={() => onCopy(key)}
+              />
+            </div>
+          )}
+          <div className="board-custom-row">
+            <input
+              aria-label="Custom field name"
+              defaultValue={key}
+              onBlur={(event) => {
+                const next = event.target.value.trim();
+                if (next && (next === key || !Object.hasOwn(fields, next))) {
+                  onChange(
+                    Object.fromEntries(
+                      Object.entries(fields).map(([name, item]) => [
+                        name === key ? next : name,
+                        item,
+                      ]),
+                    ),
+                  );
+                } else event.target.value = key;
+              }}
+            />
+            <DraftText
+              id={`${fieldId}-${index}`}
+              label={`Custom value ${key}`}
+              value={typeof value === 'string' ? value : JSON.stringify(value)}
+              onChange={(raw) => {
+                let next: JsonValue = raw;
+                try {
+                  next = JSON.parse(raw) as JsonValue;
+                } catch {
+                  /* Keep plain text. */
+                }
+                onChange({ ...fields, [key]: next });
+              }}
+            />
+            <button
+              aria-label={`Remove custom field ${key}`}
+              onClick={() => {
+                const next = { ...fields };
+                delete next[key];
+                onChange(next);
+              }}
+            >
+              ×
+            </button>
+          </div>
+        </Fragment>
       ))}
       <button
         onClick={() => {

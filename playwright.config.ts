@@ -159,10 +159,28 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:3131',
       },
     },
+    {
+      name: 'desktop-port-clipboard',
+      testMatch: '**/port-clipboard.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 1100 },
+        baseURL: 'http://127.0.0.1:3133',
+      },
+    },
+    {
+      name: 'mobile-port-clipboard',
+      testMatch: '**/port-clipboard.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3135',
+      },
+    },
   ],
   webServer: [
     3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115, 3117, 3119,
-    3121, 3123, 3125, 3127, 3129, 3131,
+    3121, 3123, 3125, 3127, 3129, 3131, 3133, 3135,
   ].map((port, index) => ({
     command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
     url: `http://127.0.0.1:${port}/healthz`,

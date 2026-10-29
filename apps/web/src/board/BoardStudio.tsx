@@ -18,6 +18,7 @@ import {
 import { api, sessionRequest } from '../api.js';
 import { AuthForm } from '../forms.js';
 import { BoardEditor, type BoardEditorHandle } from './BoardEditor.js';
+import type { PortClipboard } from './port-clipboard.js';
 import './studio.css';
 
 type NameDialog = {
@@ -27,6 +28,9 @@ type NameDialog = {
 };
 type ImportData = ReturnType<typeof boardImportSchema.parse>;
 export function BoardStudio() {
+  const [portClipboard, setPortClipboard] = useState<PortClipboard | null>(
+    null,
+  );
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [setup, setSetup] = useState(false);
@@ -44,6 +48,9 @@ export function BoardStudio() {
   const file = useRef<HTMLInputElement>(null);
   const activeRef = useRef<BoardRecord | null>(null);
   const request = useRef(0);
+  function updatePortClipboard(value: PortClipboard | null) {
+    if (!value || authUser.current) setPortClipboard(value);
+  }
   const dragged = useRef<string | null>(null);
   useEffect(() => {
     activeRef.current = active;
@@ -157,6 +164,7 @@ export function BoardStudio() {
         authUser.current = session.user;
         setUser(session.user);
         if (!session.user) {
+          setPortClipboard(null);
           const result = await api<{ setupRequired: boolean }>(
             '/auth/setup-status',
           );
@@ -197,6 +205,7 @@ export function BoardStudio() {
       transition.current = null;
       editor.current?.setLocked(true);
       authUser.current = null;
+      setPortClipboard(null);
       setUser(null);
       setBusy(false);
       setLoading(false);
@@ -225,6 +234,10 @@ export function BoardStudio() {
     if (token === null)
       throw new Error('Wait for the current request to finish');
     try {
+      // Logout and session expiry rotate the cookie; refresh its matching CSRF
+      // token before signing in again without reloading the application.
+      await sessionRequest();
+      if (!current(token)) return;
       const result = await sessionRequest(
         setup ? '/auth/setup' : '/auth/login',
         { username, password },
@@ -257,6 +270,7 @@ export function BoardStudio() {
       setBoards([]);
       setGroups([]);
       authUser.current = null;
+      setPortClipboard(null);
       setUser(null);
       setNameDialog(null);
       setImportData(null);
@@ -698,6 +712,8 @@ export function BoardStudio() {
               ref={editor}
               board={active}
               disabled={busy || !user}
+              clipboard={portClipboard}
+              onClipboardChange={updatePortClipboard}
               onImport={() => file.current?.click()}
               onExport={() => void exportJson()}
             />

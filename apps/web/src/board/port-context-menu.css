@@ -1,0 +1,75 @@
+.board-port-menu {
+  position: fixed;
+  z-index: 1000;
+  width: min(290px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 7px;
+  border: 1px solid #435d4e;
+  border-radius: 7px;
+  background: #17271e;
+  color: #dfebe3;
+  box-shadow: 0 8px 28px #0006;
+}
+.board-port-menu-heading {
+  padding: 5px 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.board-port-menu-summary {
+  margin: 0 7px 7px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #aebfb4;
+  max-height: 66px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.board-port-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-port-menu button:hover,
+.board-port-menu button:focus-visible {
+  background: #304d3b;
+}
+.board-port-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.board-port-menu-hint {
+  margin: 7px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #aebfb4;
+}
+.board-clipboard-notice,
+.board-port-selection-status {
+  position: absolute;
+  z-index: 60;
+  bottom: 15px;
+  left: 16px;
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  padding: 7px 10px;
+  border-radius: 5px;
+  background: #1d3428;
+  color: #deeee3;
+  font-size: 12px;
+  pointer-events: none;
+}
+.board-port-selection-status {
+  bottom: 51px;
+}

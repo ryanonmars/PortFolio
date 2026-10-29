@@ -12,11 +12,22 @@ import {
   type BoardDocument,
   type BoardElement,
   type BoardRecord,
+  type BoardPort,
 } from '../../../../packages/shared/src/board.js';
 import { api } from '../api.js';
 import { BoardCanvas, type BoardSelection } from './BoardCanvas.js';
 import { BoardInspector } from './BoardInspector.js';
 import { BoardSession } from './session.js';
+import { PortContextMenu } from './PortContextMenu.js';
+import {
+  copyPortSettings,
+  copyPortField,
+  pastePortSettings,
+  portClipboardLabel,
+  type PortClipboard,
+  type PortSettingKey,
+} from './port-clipboard.js';
+import type { Point } from './geometry.js';
 import { duplicateElement, removeObject } from './commands.js';
 
 export interface BoardEditorHandle {
@@ -31,8 +42,13 @@ export const BoardEditor = forwardRef<
     onImport: () => void;
     onExport: () => void;
     disabled?: boolean;
+    clipboard: PortClipboard | null;
+    onClipboardChange: (clipboard: PortClipboard | null) => void;
   }
->(function BoardEditor({ board, onImport, onExport, disabled = false }, ref) {
+>(function BoardEditor(
+  { board, onImport, onExport, disabled = false, clipboard, onClipboardChange },
+  ref,
+) {
   const [, redraw] = useState(0);
   const externalLock = useRef(false);
   const [locked, setLockedState] = useState(false);
@@ -70,6 +86,43 @@ export const BoardEditor = forwardRef<
       ),
   );
   const [selection, setSelection] = useState<BoardSelection | null>(null);
+  const [portMultiSelect, setPortMultiSelect] = useState(false);
+  const [inspectPort, setInspectPort] = useState(true);
+  const [portMenu, setPortMenu] = useState<{
+    portId: string;
+    point: Point;
+    summary: string;
+    touch: boolean;
+    previousIds: string[];
+  } | null>(null);
+  const [clipboardFeedback, setClipboardFeedback] = useState<{
+    text: string;
+  } | null>(null);
+  function selectObject(next: BoardSelection | null) {
+    setSelection(next);
+    setInspectPort(true);
+    if (next?.type !== 'port') {
+      setPortMultiSelect(false);
+      setPortMenu(null);
+    }
+  }
+  function notifyClipboard(text: string) {
+    setClipboardFeedback({ text });
+  }
+  useEffect(() => {
+    if (!clipboardFeedback) return;
+    const timer = setTimeout(() => setClipboardFeedback(null), 2800);
+    return () => clearTimeout(timer);
+  }, [clipboardFeedback]);
+  useEffect(() => {
+    if (!disabled) return;
+    const frame = requestAnimationFrame(() => {
+      setPortMenu(null);
+      setPortMultiSelect(false);
+      setClipboardFeedback(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [disabled]);
   const [tool, setTool] = useState<'select' | 'pan' | 'cable' | 'ports'>(
     'select',
   );
@@ -126,8 +179,8 @@ export const BoardEditor = forwardRef<
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
   });
-  function change(next: BoardDocument, label: string) {
-    if (blocked()) return;
+  function change(next: BoardDocument, label: string): boolean {
+    if (blocked()) return false;
     try {
       const result = boardDocumentSchema.safeParse(next);
       if (!result.success)
@@ -136,17 +189,113 @@ export const BoardEditor = forwardRef<
         );
       session.update(result.data, label);
       setError('');
+      return true;
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : 'Unable to apply change',
       );
+      return false;
     }
+  }
+  function closePortMenu(restoreFocus = true) {
+    const id = portMenu?.portId;
+    setPortMenu(null);
+    if (restoreFocus && id)
+      requestAnimationFrame(() =>
+        surface.current
+          ?.querySelector<HTMLButtonElement>(
+            `button[data-port-id="${CSS.escape(id)}"]`,
+          )
+          ?.focus({ preventScroll: true }),
+      );
+  }
+  function openPortMenu(
+    portId: string,
+    point: Point,
+    summary: string,
+    touch: boolean,
+  ) {
+    if (blocked() || gestureRef.current) return;
+    const previousIds =
+      selection?.type === 'port' ? (selection.ids ?? [selection.id]) : [];
+    const ids = previousIds.includes(portId) ? previousIds : [portId];
+    selectObject({ type: 'port', id: portId, ids });
+    setInspectPort(false);
+    setPortMenu({ portId, point, summary, touch, previousIds });
+  }
+  function copySettings(portId: string) {
+    if (blocked() || gestureRef.current) return;
+    try {
+      const port = document.ports.find((item) => item.id === portId);
+      if (!port) throw new Error('That port is no longer available.');
+      onClipboardChange(copyPortSettings(port));
+      notifyClipboard('Port settings copied');
+      closePortMenu();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Unable to copy port settings',
+      );
+    }
+  }
+  function copyField(port: BoardPort, key: PortSettingKey, customKey?: string) {
+    if (blocked() || gestureRef.current) return;
+    try {
+      const payload = copyPortField(port, key, customKey);
+      onClipboardChange(payload);
+      notifyClipboard(`${portClipboardLabel(payload)} copied`);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Unable to copy this field',
+      );
+    }
+  }
+  function pasteSettings() {
+    if (
+      blocked() ||
+      gestureRef.current ||
+      !clipboard ||
+      selection?.type !== 'port'
+    )
+      return;
+    const ids = selection.ids ?? [selection.id];
+    try {
+      const next = pastePortSettings(document, clipboard, ids);
+      if (!change(next, 'Paste port settings')) return;
+      const count = new Set(ids).size;
+      notifyClipboard(
+        clipboard.type === 'port-settings'
+          ? `Settings pasted to ${count} ${count === 1 ? 'port' : 'ports'}`
+          : `${portClipboardLabel(clipboard)} applied to ${count} ${count === 1 ? 'port' : 'ports'}`,
+      );
+      closePortMenu();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Unable to paste settings',
+      );
+    }
+  }
+  function runHistory(direction: 'undo' | 'redo') {
+    session[direction]();
+    if (selection?.type === 'port') {
+      const ids = (selection.ids ?? [selection.id]).filter((id) =>
+        session.document.ports.some((port) => port.id === id),
+      );
+      selectObject(
+        ids.length
+          ? {
+              type: 'port',
+              id: ids.includes(selection.id) ? selection.id : ids[0]!,
+              ids,
+            }
+          : null,
+      );
+    } else selectObject(null);
   }
   function remove() {
     if (blocked()) return;
     if (!selection) return;
     const ids =
-      selection.type === 'element'
+      selection.type === 'element' || selection.type === 'port'
         ? (selection.ids ?? [selection.id])
         : [selection.id];
     const portIds = new Set(
@@ -154,7 +303,7 @@ export const BoardEditor = forwardRef<
         .filter((port) =>
           selection.type === 'element'
             ? ids.includes(port.deviceId)
-            : selection.type === 'port' && port.id === selection.id,
+            : selection.type === 'port' && ids.includes(port.id),
         )
         .map((port) => port.id),
     );
@@ -178,7 +327,7 @@ export const BoardEditor = forwardRef<
       ),
       ids.length > 1 ? 'Delete objects' : 'Delete object',
     );
-    setSelection(null);
+    selectObject(null);
   }
   function duplicate() {
     if (blocked()) return;
@@ -186,7 +335,7 @@ export const BoardEditor = forwardRef<
       return;
     const next = duplicateElement(document, selection.id);
     change(next, 'Duplicate container');
-    setSelection({ type: 'element', id: next.elements.at(-1)!.id });
+    selectObject({ type: 'element', id: next.elements.at(-1)!.id });
   }
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
@@ -194,22 +343,37 @@ export const BoardEditor = forwardRef<
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        (target.closest('input,textarea,select,[contenteditable=true]') ||
+        (target.closest('input,textarea,select,[contenteditable]') ||
+          target.isContentEditable ||
           target.closest('dialog,.board-summary-content'))
       )
         return;
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        ['c', 'v'].includes(event.key.toLowerCase())
+      ) {
+        if (
+          selection?.type === 'port' &&
+          target instanceof Element &&
+          target.closest('.board-canvas') &&
+          (tool === 'select' || tool === 'ports')
+        ) {
+          event.preventDefault();
+          if (event.key.toLowerCase() === 'c') copySettings(selection.id);
+          else pasteSettings();
+        }
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
-        if (event.shiftKey) session.redo();
-        else session.undo();
-        setSelection(null);
+        runHistory(event.shiftKey ? 'redo' : 'undo');
       } else if (
         (event.metaKey || event.ctrlKey) &&
         event.key.toLowerCase() === 'y'
       ) {
         event.preventDefault();
-        session.redo();
-        setSelection(null);
+        runHistory('redo');
       } else if (
         (event.metaKey || event.ctrlKey) &&
         event.key.toLowerCase() === 'd'
@@ -220,7 +384,7 @@ export const BoardEditor = forwardRef<
         event.preventDefault();
         remove();
       } else if (event.key === 'Escape') {
-        setSelection(null);
+        selectObject(null);
         setTool('select');
         setDock(false);
       }
@@ -271,7 +435,7 @@ export const BoardEditor = forwardRef<
       { ...document, elements: [...document.elements, element] },
       'Add container',
     );
-    setSelection({ type: 'element', id: element.id });
+    selectObject({ type: 'element', id: element.id });
     setDock(false);
     setTypes(false);
     setTool('select');
@@ -302,7 +466,7 @@ export const BoardEditor = forwardRef<
       )
         return;
       session.replace(result.board);
-      setSelection(null);
+      selectObject(null);
       setError('');
     } catch (cause) {
       if (alive.current && reloadToken.current === token)
@@ -368,8 +532,7 @@ export const BoardEditor = forwardRef<
           aria-label="Undo"
           disabled={inactive || !session.canUndo || gesture}
           onClick={() => {
-            session.undo();
-            setSelection(null);
+            runHistory('undo');
           }}
         >
           ↶
@@ -378,8 +541,7 @@ export const BoardEditor = forwardRef<
           aria-label="Redo"
           disabled={inactive || !session.canRedo || gesture}
           onClick={() => {
-            session.redo();
-            setSelection(null);
+            runHistory('redo');
           }}
         >
           ↷
@@ -617,7 +779,10 @@ export const BoardEditor = forwardRef<
         tool={tool}
         disabled={inactive}
         onChange={change}
-        onSelect={setSelection}
+        onSelect={selectObject}
+        portMultiSelect={portMultiSelect}
+        portMenuOpen={Boolean(portMenu)}
+        onPortContextMenu={openPortMenu}
         onGestureChange={updateGesture}
         fitToken={fitToken}
       />
@@ -627,25 +792,115 @@ export const BoardEditor = forwardRef<
             <h2>{selection.ids!.length} objects selected</h2>
             <button
               aria-label="Close inspector"
-              onClick={() => setSelection(null)}
+              onClick={() => selectObject(null)}
             >
               ×
             </button>
           </header>
         </aside>
       ) : (
-        selection && (
+        selection &&
+        !(
+          selection.type === 'port' &&
+          (portMenu ||
+            !inspectPort ||
+            portMultiSelect ||
+            (selection.ids?.length ?? 1) > 1)
+        ) && (
           <BoardInspector
             key={`${selection.type}:${selection.id}`}
             document={document}
             selection={selection}
             onChange={change}
-            onClose={() => setSelection(null)}
+            onClose={() => selectObject(null)}
             onDelete={remove}
             onDuplicate={duplicate}
+            onCopyPortField={copyField}
           />
         )
       )}
+      {!inactive &&
+        selection?.type === 'port' &&
+        (portMultiSelect || (selection.ids?.length ?? 1) > 1) && (
+          <div className="board-port-selection-status" role="status">
+            {selection.ids?.length ?? 1}{' '}
+            {(selection.ids?.length ?? 1) === 1
+              ? 'port selected'
+              : 'ports selected'}
+          </div>
+        )}
+      {!inactive && clipboardFeedback && (
+        <div className="board-clipboard-notice" role="status">
+          {clipboardFeedback.text}
+        </div>
+      )}
+      {!inactive &&
+        portMenu &&
+        (() => {
+          const port = document.ports.find(
+            (item) => item.id === portMenu.portId,
+          );
+          if (!port) return null;
+          const selectedIds =
+            selection?.type === 'port' ? (selection.ids ?? [selection.id]) : [];
+          const wasSelected = portMenu.previousIds.includes(port.id);
+          const toggleSelection = () => {
+            const ids = wasSelected
+              ? portMenu.previousIds.filter((id) => id !== port.id)
+              : [...new Set([...portMenu.previousIds, port.id])];
+            setPortMultiSelect(true);
+            selectObject(
+              ids.length
+                ? {
+                    type: 'port',
+                    id: ids.includes(port.id) ? port.id : ids.at(-1)!,
+                    ids,
+                  }
+                : null,
+            );
+            closePortMenu();
+          };
+          return (
+            <PortContextMenu
+              point={portMenu.point}
+              portId={port.id}
+              title={`${document.elements.find((item) => item.id === port.deviceId)?.name ?? 'Device'} / ${port.name}`}
+              summary={portMenu.summary}
+              overwriteHint={clipboard?.type === 'port-settings'}
+              onClose={closePortMenu}
+              actions={[
+                {
+                  label: 'Copy Port Settings',
+                  run: () => copySettings(port.id),
+                },
+                {
+                  label: 'Paste Settings',
+                  disabled: !clipboard || !selectedIds.length,
+                  run: pasteSettings,
+                },
+                {
+                  label: portMultiSelect
+                    ? 'Finish Selecting'
+                    : 'Select Multiple Ports',
+                  run: () => {
+                    setPortMultiSelect(!portMultiSelect);
+                    closePortMenu();
+                  },
+                },
+                ...(wasSelected || portMenu.previousIds.length
+                  ? [
+                      {
+                        label: wasSelected
+                          ? 'Remove from Selection'
+                          : 'Add to Selection',
+                        run: toggleSelection,
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          );
+        })()}
     </section>
   );
 });
