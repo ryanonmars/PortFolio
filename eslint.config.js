@@ -10,13 +10,17 @@ export default tseslint.config(
       'coverage/**',
       'playwright-report/**',
       'test-results/**',
+      '.tmp/**',
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx,js}'],
-    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
+    },
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',
