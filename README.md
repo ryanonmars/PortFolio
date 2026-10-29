@@ -10,7 +10,54 @@ A self-hosted visual documentation board for network equipment. Create a board, 
 docker compose up -d --build
 ```
 
-Open `http://127.0.0.1:3088` and create the administrator account. Compose binds to loopback and stores all persistent data in `./data`. The container runs without root, with a read-only filesystem and dropped capabilities. The image identifier is `ghcr.io/ryanonmars/portfolio`; local builds use the `:local` tag.
+Open `http://localhost:3088` and create the administrator account; there are no default credentials. Compose publishes port 3088 on all host interfaces and stores persistent data in `./data`. For LAN access, set `PUBLIC_ORIGIN` in `.env` to the exact address used by your browser, including the port (for example, `http://192.0.2.10:3088`). Localhost access remains available. Set `BIND_ADDRESS=127.0.0.1` for loopback-only publishing. The container runs without root, with a read-only filesystem and dropped capabilities. Local builds use `ghcr.io/ryanonmars/portfolio:local`.
+
+On Linux, create the data directory before startup with ownership for container UID/GID 1000:
+
+```sh
+sudo install -d -m 0700 -o 1000 -g 1000 data
+```
+
+## TrueNAS SCALE / Dockge
+
+Use [deployment/compose.yaml](deployment/compose.yaml) and [deployment/.env.example](deployment/.env.example); this deployment pulls the published image and requires no source checkout or GitHub credentials once the package is public. Put the Compose stack and its `.env` in `/mnt/tank/stacks/portfolio`. In Dockge, paste that Compose file and set the environment values. Create the persistent directory first:
+
+```sh
+sudo install -d -m 0700 -o 1000 -g 1000 /mnt/tank/configs/portfolio
+```
+
+On TrueNAS datasets with managed ACLs, grant UID/GID 1000 access through the dataset ACL instead of replacing existing permissions. Keep application data separate from the stack folder. The bind mount deliberately refuses to create a missing data directory.
+
+Set `PUBLIC_ORIGIN` to your server's actual LAN URL before deployment, then open that URL and create the administrator account. No reverse proxy is required. Docker listens on internal port 3088 and persists SQLite and backups under `/data`.
+
+| Variable          | Default                       | Purpose                                                                                    |
+| ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `IMAGE_TAG`       | `v0.1.0`                      | Published image version; pin production deployments. `latest` tracks stable releases only. |
+| `PORT`            | `3088`                        | Published host port; internal port remains 3088.                                           |
+| `BIND_ADDRESS`    | `0.0.0.0`                     | Host interfaces; use `127.0.0.1` for local access only.                                    |
+| `DATA_PATH`       | `/mnt/tank/configs/portfolio` | Existing writable host directory mounted at `/data`.                                       |
+| `PUBLIC_ORIGIN`   | `http://localhost:3088`       | Exact browser URL; replace with the server IP/hostname and published port for LAN access.  |
+| `ALLOWED_ORIGINS` | empty                         | Optional additional exact HTTP(S) origins, separated by commas.                            |
+
+Compose configures HTTP localhost/127.0.0.1 access automatically using `LOCAL_ORIGIN`. Native development can set that variable explicitly. Each write requires a trusted Host, a matching Origin and a session CSRF token. Arbitrary hostnames, wildcard origins and forwarded-header overrides are rejected. HTTP and HTTPS cannot share the same configured host and port; HTTPS origins receive Secure cookies, while direct HTTP LAN origins use host-only HTTP cookies. For an HTTPS reverse proxy, preserve the browser's Host, set `PUBLIC_ORIGIN=https://your-hostname`, and list any additional LAN address in `ALLOWED_ORIGINS`. Restrict the Docker binding or firewall to the proxy when appropriate. No tunnel, router port forwarding or public DNS setup is created by this stack.
+
+To upgrade, back up the data, change `IMAGE_TAG` to a new stable version, then use Dockge's pull/recreate actions or:
+
+```sh
+docker compose pull
+docker compose up -d --wait
+```
+
+Migrations run at startup. Keep the previous image tag and backup; rolling back a database upgrade means restoring the matching backup into a new empty directory, rather than replacing a live database.
+
+The published image supports Linux amd64 and arm64. Verify public pulls without cached Docker credentials:
+
+```sh
+docker --config /path/to/empty-docker-config pull ghcr.io/ryanonmars/portfolio:v0.1.0
+docker buildx imagetools inspect ghcr.io/ryanonmars/portfolio:v0.1.0
+```
+
+The source repository remains private. If package visibility needs setup, open the `portfolio` package under the GitHub account's Packages, choose Package settings, remove inherited repository access if required while retaining the repository under Manage Actions access, and change the package visibility to Public. Public visibility must be verified with an anonymous pull, not assumed from an authenticated one.
 
 ## Use the board
 
@@ -47,6 +94,19 @@ DATA_DIR=/path/to/new-empty-data pnpm db:restore /path/to/snapshot.sqlite
 
 Backups contain private documentation and account/session data. Keep them private.
 
+For production, copy backups out of `/data/backups` to a separate protected location. To restore on Docker, stop the service, prepare a new empty host directory owned by UID/GID 1000, and run the same pinned image against that directory:
+
+```sh
+docker compose stop
+docker compose run --rm --no-deps \
+  -e DATA_DIR=/restore \
+  -v /path/to/new-empty-data:/restore \
+  -v /path/to/private-backups:/snapshots:ro \
+  portfolio node dist/scripts/database.js restore /snapshots/snapshot.sqlite
+```
+
+Then set `DATA_PATH` to the restored directory in the production `.env` and start the stack. Keep the original directory until recovery has been verified. Never copy a live SQLite file as a substitute for the backup command.
+
 ## Existing data
 
 Migration007 adds board/group storage without editing earlier migrations or deleting relational data. Existing Sites become Boards and Workspaces become optional Groups. Equipment, ports and physical cable IDs remain stable. VLANs, subnets and DHCP scopes become editable Network entries. Original rows, custom definitions, templates, racks and unsupported logical links remain in a recoverable legacy payload and the original tables. Conditional **Migration notes** identify records retained for recovery rather than active board objects. Conversion is idempotent; deleting a migrated board does not recreate it on restart.
@@ -77,4 +137,4 @@ The browser suite covers the board product on desktop and mobile with isolated s
 
 Undo history is bounded and lasts for the open editor session. SVG image export shows the currently selected front/rear faces. Wide physical layouts remain identical on every screen; use pan/zoom on phones. Mobile supports deliberate selection, handle movement, bottom-sheet configuration and creation through the Equipment Dock. Real iPhone Safari keyboard/focus behavior should be checked on the target device in addition to automated WebKit coverage. Cable sag/physics is future work.
 
-Keep the existing private repository and local testing workflow. No public release, remote push or image publication is automatic.
+CI checks pull requests and pushes to `main`. Stable `vX.Y.Z` tags rerun validation before publishing versioned, `latest`, and commit image tags to GHCR. Publishing uses GitHub Actions' scoped token; ordinary development pushes do not publish images. Tags must match `package.json` and belong to `main`. Do not reuse release tags.
