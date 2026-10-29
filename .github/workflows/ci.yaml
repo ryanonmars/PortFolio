@@ -1,35 +1,64 @@
 name: CI
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
 permissions:
   contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   checks:
+    name: Test, build and container smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out the tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version-file: .node-version
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
       - run: npm install --global pnpm@10.28.2
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --audit-level=moderate
+      - name: Check dependency advisories
+        run: pnpm audit --audit-level=moderate
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
-      - run: docker compose build
-      - name: Validate hardened container
+      - name: Unit, API, security and migration tests
+        run: pnpm test
+      - name: Production backend and frontend build
+        run: pnpm build
+      - name: Install browser engines and system dependencies
+        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Desktop and mobile browser tests
+        run: pnpm test:e2e
+      - name: Build production container
+        run: docker compose build
+      - name: Validate the non-root container and persistent database
+        env:
+          BIND_ADDRESS: 127.0.0.1
+          PORT: '3101'
+          PUBLIC_ORIGIN: http://127.0.0.1:3101
         run: |
           sudo install -d -m 700 -o 1000 -g 1000 data
-          PORT=3101 docker compose up -d --wait
+          docker compose up -d --wait --wait-timeout 90
+          test "$(docker compose exec -T portfolio id -u)" = 1000
+          curl --fail --silent http://127.0.0.1:3101/healthz
           docker compose exec -T portfolio node dist/scripts/database.js migrate
           docker compose exec -T portfolio node dist/scripts/database.js backup /data/backups/ci.sqlite
-      - name: Stop trial container
+          docker compose up -d --force-recreate --wait --wait-timeout 90
+          docker compose exec -T portfolio test -s /data/backups/ci.sqlite
+      - name: Stop the trial container
         if: always()
         run: docker compose down

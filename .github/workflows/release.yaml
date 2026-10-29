@@ -1,0 +1,133 @@
+name: Stable container release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-container-release
+  cancel-in-progress: false
+
+jobs:
+  revision:
+    name: Validate the stable release revision
+    if: github.repository == 'ryanonmars/PortFolio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a new stable version on main
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const tag = process.env.RELEASE_TAG;
+          const stable = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+          if (!stable.test(tag)) throw new Error('Release tags must use vX.Y.Z without prerelease suffixes');
+          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+          if (tag !== `v${version}`) throw new Error('Release tag must match package.json version');
+          const tags = execFileSync('git', ['tag', '--list'], { encoding: 'utf8' }).trim().split('\n').filter(value => stable.test(value));
+          tags.sort((a, b) => {
+            const left = a.slice(1).split('.').map(BigInt), right = b.slice(1).split('.').map(BigInt);
+            for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] > right[i] ? -1 : 1;
+            return 0;
+          });
+          if (tags[0] !== tag) throw new Error('An older stable tag cannot replace latest');
+          NODE
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+  validation:
+    name: Release validation
+    needs: revision
+    uses: ./.github/workflows/ci.yaml
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish verified amd64 and arm64 images
+    needs: [revision, validation]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/ryanonmars/portfolio
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Refuse to overwrite an existing version image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh api --paginate --slurp /users/ryanonmars/packages/container/portfolio/versions > /tmp/portfolio-versions.json 2> /tmp/portfolio-package-error; then
+            node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const versions = JSON.parse(readFileSync('/tmp/portfolio-versions.json', 'utf8')).flat();
+          if (versions.some(item => item.metadata?.container?.tags?.includes(process.env.RELEASE_TAG))) {
+            throw new Error('This container version already exists; create a new version instead of overwriting it');
+          }
+          NODE
+          elif ! grep -q 'HTTP 404' /tmp/portfolio-package-error; then
+            cat /tmp/portfolio-package-error
+            exit 1
+          fi
+      - name: Enable arm64 builds on the hosted runner
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare stable tags and OCI metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/ryanonmars/portfolio
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=raw,value=latest
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=PortFolio
+            org.opencontainers.image.description=Visual Network Documentation
+      - name: Build and publish the committed release
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: mode=min
+          sbom: true
+      - name: Verify both published architectures
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          docker buildx imagetools inspect --raw "$IMAGE@$DIGEST" > /tmp/portfolio-manifest.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('/tmp/portfolio-manifest.json', 'utf8'));
+          const platforms = manifest.manifests.map(item => `${item.platform?.os}/${item.platform?.architecture}`);
+          for (const platform of ['linux/amd64', 'linux/arm64']) {
+            if (!platforms.includes(platform)) throw new Error(`Published image is missing ${platform}`);
+          }
+          NODE
+          printf 'Published %s@%s for linux/amd64 and linux/arm64.\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
