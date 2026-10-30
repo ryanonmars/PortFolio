@@ -12,6 +12,7 @@ const media = '.tmp/qa-media/export-fidelity';
 test.use({ actionTimeout: 15_000 });
 function fixture(): BoardDocument {
   const document = emptyBoardDocument();
+  const networkPrefixes = ['192.0.2', '198.51.100', '203.0.113'];
   document.grid = false;
   document.viewport = { x: 120, y: 100, zoom: 0.7 };
   document.elements = [
@@ -42,12 +43,12 @@ function fixture(): BoardDocument {
           vlanId: String(id),
           vlanName: ['Management', 'Server', 'User Devices'][index]!,
           color: ['#428deb', '#37ef29', '#f14646'][index]!,
-          subnet: `192.168.${index}.0/24`,
-          gateway: `192.168.${index}.1`,
+          subnet: `${networkPrefixes[index]}.0/24`,
+          gateway: `${networkPrefixes[index]}.1`,
           dhcpServer: index !== 2,
-          dhcpStart: `192.168.${index}.100`,
-          dhcpEnd: `192.168.${index}.200`,
-          dns: '192.168.4.64',
+          dhcpStart: `${networkPrefixes[index]}.100`,
+          dhcpEnd: `${networkPrefixes[index]}.200`,
+          dns: '203.0.113.53',
           notes: index === 2 ? 'Authored network notes remain readable.' : '',
           customFields: {
             Capacity: index === 1 ? 0 : '',
@@ -329,7 +330,7 @@ test('standalone vector export matches the shared board presentation, content bo
     'Enabled',
     'Disabled',
     'DHCP Pool',
-    '192.168.4.64',
+    '203.0.113.53',
     'Front',
     'Rear',
     'LAN Trunk',

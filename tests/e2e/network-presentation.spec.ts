@@ -121,11 +121,11 @@ test('Network information chips respect independent visible fields and wrap with
           vlanId: '1',
           vlanName: 'Management',
           color: '#488ded',
-          subnet: '192.168.0.0/24',
-          gateway: '192.168.0.1',
+          subnet: '192.0.2.0/24',
+          gateway: '192.0.2.1',
           dhcpServer: true,
-          dhcpStart: '192.168.0.100',
-          dhcpEnd: '192.168.0.200',
+          dhcpStart: '192.0.2.100',
+          dhcpEnd: '192.0.2.200',
           dns: longAddress,
           notes:
             'Primary network notes stay readable.\nSecond line of authored context.',
@@ -140,12 +140,12 @@ test('Network information chips respect independent visible fields and wrap with
           vlanId: '20',
           vlanName: 'Users',
           color: '#56a77c',
-          subnet: '192.168.20.0/24',
+          subnet: '198.51.100.0/24',
           gateway: '',
           dhcpServer: false,
-          dhcpStart: '192.168.20.100',
-          dhcpEnd: '192.168.20.200',
-          dns: '192.168.4.64',
+          dhcpStart: '198.51.100.100',
+          dhcpEnd: '198.51.100.200',
+          dns: '203.0.113.53',
           notes: '',
           customFields: {},
         },
@@ -195,7 +195,7 @@ test('Network information chips respect independent visible fields and wrap with
     'Management',
   );
   await expect(chip('subnet')).toContainText('Subnet');
-  await expect(chip('subnet')).toContainText('192.168.0.0/24');
+  await expect(chip('subnet')).toContainText('192.0.2.0/24');
   await expect(chip('gateway')).toContainText('Gateway');
   await expect(chip('dhcpServer')).toContainText('Enabled');
   await expect(
@@ -206,9 +206,9 @@ test('Network information chips respect independent visible fields and wrap with
   ).toHaveCount(0);
   await expect(
     entries.nth(1).locator('.board-network-chip[data-field="dhcpPool"]'),
-  ).toContainText('192.168.20.100 → 192.168.20.200');
+  ).toContainText('198.51.100.100 → 198.51.100.200');
   await expect(chip('dhcpPool')).toContainText('DHCP Pool');
-  await expect(chip('dhcpPool')).toContainText('192.168.0.100 → 192.168.0.200');
+  await expect(chip('dhcpPool')).toContainText('192.0.2.100 → 192.0.2.200');
   await expect(chip('dhcpStart')).toHaveCount(0);
   await expect(chip('dhcpEnd')).toHaveCount(0);
   await expect(chip('dns')).toContainText(longAddress);
@@ -240,7 +240,7 @@ test('Network information chips respect independent visible fields and wrap with
   await closeInspector(page);
   await expect(chip('gateway')).toHaveCount(0);
   await expect(chip('dhcpPool')).toHaveCount(0);
-  await expect(chip('dhcpStart')).toContainText('192.168.0.100');
+  await expect(chip('dhcpStart')).toContainText('192.0.2.100');
   await expect(chip('dhcpStart')).toContainText('DHCP');
   await expect(chip('dhcpEnd')).toHaveCount(0);
   await expect(first.locator('.board-network-entry-heading')).not.toContainText(
@@ -265,7 +265,7 @@ test('Network information chips respect independent visible fields and wrap with
   await closeInspector(page);
   await expect(chip('dhcpPool')).toHaveCount(0);
   await expect(chip('dhcpStart')).toHaveCount(0);
-  await expect(chip('dhcpEnd')).toContainText('192.168.0.200');
+  await expect(chip('dhcpEnd')).toContainText('192.0.2.200');
 
   await select(page, element);
   await (
@@ -322,7 +322,7 @@ test('Network information chips respect independent visible fields and wrap with
   await page.reload();
   await saved(page);
   expect((await read(page, id)).document.elements).toEqual(narrow.elements);
-  await expect(chip('dhcpPool')).toContainText('192.168.0.100 → 192.168.0.200');
+  await expect(chip('dhcpPool')).toContainText('192.0.2.100 → 192.0.2.200');
   await noHorizontalOverflow(element);
   await select(page, element);
   const bottom = page.getByRole('button', {

@@ -18,7 +18,7 @@ The redesign brief explicitly authorizes a dedicated local redesign branch and t
 ## Source of truth and design constraints
 
 - Read `docs/MASTER_BUILD_PROMPT.md`, `PRODUCT_SPEC.md`, `UX_SPEC.md`, `DATA_MODEL.md`, `ARCHITECTURE.md`, `TEST_PLAN.md`, `SECURITY.md`, and `DECISIONS.md` before the first implementation.
-- This is **general-purpose** network documentation. The user's home router and event trailers are inspiration, **not hardcoded business logic**.
+- This is **general-purpose** network documentation. Use synthetic documentation examples rather than personal deployment details or hardcoded business logic.
 - The **site visual equipment layout is the default**. It shows stacked physical front panels; topology is optional/secondary. A **Configure** action exposes the spreadsheet-style editor.
 - The user-approved RJ45 illustration is in `design-reference/approved-rj45-port-style.png`: preserve its recognizably detailed RJ45 socket, strong rounded VLAN-colored border and clear port number at every density. SCALE the same design for high port counts. Do not swap in a generic glyph on 24/48-port devices.
 - Data model is the single source of truth. Front panel, port inspector, VLAN memberships, and connections all derive from stored records. No duplicate editable diagram data.
@@ -38,7 +38,7 @@ The redesign brief explicitly authorizes a dedicated local redesign branch and t
 ## Branding
 
 - Application: **PortFolio**. Tagline: **Visual Network Documentation**.
-- Private GitHub destination: `ryanonmars/portfolio`. Docker image: `ghcr.io/ryanonmars/portfolio`.
+- Public GitHub destination: `ryanonmars/portfolio`. Docker image: `ghcr.io/ryanonmars/portfolio`.
 - Intended development directory: `~/VS_Code/PortFolio`.
 
 ## Git/commits
@@ -48,7 +48,7 @@ The redesign brief explicitly authorizes a dedicated local redesign branch and t
 - Prepare coherent slices with passing checks. Commit only when the user explicitly requests it; do not push, create remotes, or publish images without explicit authorization.
 - Do not commit `.env`, local databases, backups, node_modules, generated build output, user network details or tokens. Never force-push or rewrite shared history. Do not add a public license or change visibility without user instruction.
 - Respect unrelated changes and avoid blanket `git add .` where untracked files might contain secrets. Report SHA + tests when handing off.
-- **GitHub repo must be private.** Creation/push timing and auth checks follow `docs/GITHUB_POLICY.md`.
+- **The user has explicitly made the GitHub repository public.** Keep credentials, deployment data and personal network details out of all commits. Future visibility changes still require explicit user instruction.
 
 ## Safety and scope
 

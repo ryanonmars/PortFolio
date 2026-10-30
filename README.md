@@ -70,7 +70,7 @@ docker --config /path/to/empty-docker-config pull ghcr.io/ryanonmars/portfolio:v
 docker buildx imagetools inspect ghcr.io/ryanonmars/portfolio:v0.1.1
 ```
 
-The source repository remains private. If package visibility needs setup, open the `portfolio` package under the GitHub account's Packages, choose Package settings, remove inherited repository access if required while retaining the repository under Manage Actions access, and change the package visibility to Public. Public visibility must be verified with an anonymous pull, not assumed from an authenticated one.
+The source repository and container package are public. If package visibility needs setup, open the `portfolio` package under the GitHub account's Packages, choose Package settings, remove inherited repository access if required while retaining the repository under Manage Actions access, and change the package visibility to Public. Public visibility must be verified with an anonymous pull, not assumed from an authenticated one.
 
 ## Use the board
 

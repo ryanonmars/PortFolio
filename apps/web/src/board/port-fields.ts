@@ -23,7 +23,7 @@ export const portHelp = {
     'VLANs whose outgoing traffic carries an 802.1Q tag.\n\nExample: 20, 30.\n\nA trunk/uplink port may carry multiple tagged VLANs.',
   PVID: 'Port VLAN ID.\n\nThe VLAN assigned to incoming untagged traffic.\n\nExample: 1.\n\nPVID is independent of the Native VLAN field.',
   'Interface IP / Address':
-    'Optional IP addressing information associated with this interface.\n\nExamples: 192.168.4.64/24, DHCP, or an IPv6 address.\n\nMany Layer 2 switch ports do not have their own IP address.',
+    'Optional IP addressing information associated with this interface.\n\nExamples: 192.0.2.10/24, DHCP, or an IPv6 address.\n\nMany Layer 2 switch ports do not have their own IP address.',
   'External Connection':
     'Describes a connection to something not represented by another port on the current board.\n\nExamples: ISP Modem, Wall Jack A12, Building Uplink.\n\nFor equipment already represented on the board, use the visual Cable tool instead.',
 } as const;

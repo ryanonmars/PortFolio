@@ -209,7 +209,7 @@ test('device headers display complete natural pills or accessible overflow witho
         face: 'front',
         manufacturer: 'TP-Link',
         model: 'ER8411',
-        managementAddress: '192.168.0.1',
+        managementAddress: '192.0.2.1',
         deviceType: 'Router',
         notes:
           'Authored device notes remain complete in the information popover.',
@@ -368,7 +368,7 @@ test('device headers display complete natural pills or accessible overflow witho
     for (const [field, value] of [
       ['manufacturer', 'TP-Link'],
       ['model', 'ER8411'],
-      ['managementAddress', '192.168.0.1'],
+      ['managementAddress', '192.0.2.1'],
     ])
       await expect(
         device.locator(
@@ -417,7 +417,7 @@ test('device headers display complete natural pills or accessible overflow witho
   const fullFields = [
     ['manufacturer', 'TP-Link'],
     ['model', 'ER8411'],
-    ['managementAddress', '192.168.0.1'],
+    ['managementAddress', '192.0.2.1'],
   ];
   for (const [field, value] of fullFields) {
     if (shown.includes(field)) await expect(panel).not.toContainText(value!);
@@ -456,7 +456,7 @@ test('device headers display complete natural pills or accessible overflow witho
   await contained(device);
   await icon.focus();
   panel = await popupWithinViewport();
-  for (const value of ['TP-Link', 'ER8411', '192.168.0.1'])
+  for (const value of ['TP-Link', 'ER8411', '192.0.2.1'])
     await expect(panel).toContainText(value);
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
