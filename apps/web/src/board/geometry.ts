@@ -45,7 +45,9 @@ export function minimumDeviceSize(
 ): { width: number; height: number } {
   return element.type === 'device'
     ? minimumBoardDeviceSize(element, ports)
-    : { width: 160, height: 120 };
+    : element.type === 'network' || element.type === 'summary'
+      ? { width: 160, height: 120 }
+      : { width: 16, height: 16 };
 }
 export function getPortPoint(
   document: BoardDocument,

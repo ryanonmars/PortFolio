@@ -20,6 +20,9 @@ import {
 import type { BoardSelection } from './BoardCanvas.js';
 import type { PortSettingKey } from './port-clipboard.js';
 import './port-field-copy.css';
+import { isAnnotation } from './annotations.js';
+import { AnnotationInspector } from './AnnotationInspector.js';
+import { orderElement, type ObjectOrder } from './commands.js';
 import { PortLayoutEditor } from './PortLayoutEditor.js';
 import {
   deviceHeaderFieldDefinitions,
@@ -359,7 +362,58 @@ export function BoardInspector({
       </header>
       <div className="board-inspector-body">
         {error && <p role="alert">{error}</p>}
-        {element && (
+        {element && isAnnotation(element) && (
+          <>
+            <AnnotationInspector element={element} onChange={changeElement} />
+            <details>
+              <summary>Position and size</summary>
+              {(['x', 'y', 'width', 'height'] as const).map((key) =>
+                input(
+                  { x: 'X', y: 'Y', width: 'Width', height: 'Height' }[key],
+                  element[key],
+                  (value) => {
+                    const n = Number(value);
+                    if (
+                      Number.isFinite(n) &&
+                      (key === 'x' || key === 'y'
+                        ? n >= -100000 && n <= 100000
+                        : n >= 16 && n <= 20000)
+                    )
+                      changeElement({ [key]: n }, key);
+                  },
+                  'number',
+                ),
+              )}
+            </details>
+            <details>
+              <summary>Order</summary>
+              <div className="board-annotation-order">
+                {(
+                  [
+                    ['forward', 'Bring forward'],
+                    ['backward', 'Send backward'],
+                    ['front', 'Bring to front'],
+                    ['back', 'Send to back'],
+                  ] as [ObjectOrder, string][]
+                ).map(([action, label]) => (
+                  <button
+                    key={action}
+                    type="button"
+                    onClick={() =>
+                      onChange(
+                        orderElement(document, element.id, action),
+                        label,
+                      )
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </details>
+          </>
+        )}
+        {element && !isAnnotation(element) && (
           <>
             {input(
               element.type === 'network' ? 'Network container name' : 'Name',

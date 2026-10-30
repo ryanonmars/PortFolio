@@ -25,20 +25,63 @@ export const boardViewportSchema = z
   })
   .strict();
 export type BoardViewport = z.infer<typeof boardViewportSchema>;
+export const boardAnnotationTypes = [
+  'text',
+  'arrow',
+  'rectangle',
+  'highlight',
+] as const;
+export const annotationPropertiesSchema = z
+  .object({
+    text: z.string().max(10000).optional(),
+    fontSize: z.number().finite().min(10).max(120).optional(),
+    textColor: color.optional(),
+    backgroundColor: color.optional(),
+    align: z.enum(['left', 'center', 'right']).optional(),
+    fillColor: color.optional(),
+    fillOpacity: z.number().finite().min(0).max(1).optional(),
+    strokeColor: color.optional(),
+    strokeWidth: z.number().finite().min(0).max(16).optional(),
+    cornerRadius: z.number().finite().min(0).max(80).optional(),
+    startX: z.number().finite().min(0).max(1).optional(),
+    startY: z.number().finite().min(0).max(1).optional(),
+    endX: z.number().finite().min(0).max(1).optional(),
+    endY: z.number().finite().min(0).max(1).optional(),
+    arrowhead: z.boolean().optional(),
+  })
+  .passthrough();
 export const boardElementSchema = z
   .object({
     id,
-    type: z.enum(['device', 'network', 'summary']),
+    type: z.enum(['device', 'network', 'summary', ...boardAnnotationTypes]),
     name: z.string().max(240),
     x: position,
     y: position,
-    width: z.number().finite().min(160).max(20000),
-    height: z.number().finite().min(120).max(20000),
+    width: z.number().finite().min(16).max(20000),
+    height: z.number().finite().min(16).max(20000),
     z: z.number().int().min(0).max(100000),
     color,
     properties,
   })
-  .strict();
+  .strict()
+  .superRefine((element, ctx) => {
+    if (['device', 'network', 'summary'].includes(element.type)) {
+      if (element.width < 160 || element.height < 120)
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Containers must be at least 160 × 120',
+        });
+      return;
+    }
+    const result = annotationPropertiesSchema.safeParse(element.properties);
+    if (!result.success)
+      for (const issue of result.error.issues)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['properties', ...issue.path],
+          message: issue.message,
+        });
+  });
 export type BoardElement = z.infer<typeof boardElementSchema>;
 // Physical canvas units, shared by rendering, insertion and integrity checks.
 export const boardPortLayout = {

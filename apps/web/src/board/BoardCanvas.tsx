@@ -7,6 +7,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
   type DragEvent as ReactDragEvent,
+  type CSSProperties,
 } from 'react';
 import {
   resolveBoardPortColor,
@@ -24,7 +25,17 @@ import { SummaryLinks } from './SummaryLinks.js';
 import { NetworkSummary } from './NetworkSummary.js';
 import { DeviceHeader } from './DeviceHeader.js';
 import { deviceHeaderFields } from './device-header-fields.js';
-import { makeBoardPort } from './commands.js';
+import { makeBoardPort, addAnnotation } from './commands.js';
+import { BoardAnnotation } from './BoardAnnotation.js';
+import {
+  annotationKinds,
+  annotationPresentation,
+  annotationEndpoints,
+  isAnnotation,
+  makeAnnotation,
+  setArrowEndpoints,
+  type AnnotationKind,
+} from './annotations.js';
 import { Connector } from '../visual/Connector.js';
 import {
   activeFace,
@@ -57,10 +68,12 @@ export type BoardSelection = {
   id: string;
   ids?: string[];
 };
+export type BoardTool = 'select' | 'pan' | 'cable' | 'ports' | AnnotationKind;
 export interface BoardCanvasProps {
   document: BoardDocument;
   selection: BoardSelection | null;
-  tool: 'select' | 'pan' | 'cable' | 'ports';
+  tool: BoardTool;
+  onToolComplete?: () => void;
   disabled: boolean;
   onChange: (document: BoardDocument, label: string) => void;
   onSelect: (selection: BoardSelection | null, inspect?: boolean) => void;
@@ -76,7 +89,7 @@ export interface BoardCanvasProps {
   ) => void;
 }
 type Gesture = {
-  type: 'pan' | 'move' | 'resize' | 'port' | 'marquee';
+  type: 'pan' | 'move' | 'resize' | 'port' | 'marquee' | 'draw' | 'endpoint';
   ids?: string[];
   selection?: BoardSelection | null;
   additive?: boolean;
@@ -89,7 +102,11 @@ type Gesture = {
   handle?: string;
   moved: boolean;
 };
-type Rename = { type: 'element' | 'port'; id: string; value: string };
+type Rename = {
+  type: 'element' | 'port' | 'annotation';
+  id: string;
+  value: string;
+};
 const MemoConnector = memo(Connector);
 const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 function portSummary(port: BoardPort) {
@@ -125,6 +142,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     onSelect,
     onGestureChange,
     fitToken,
+    onToolComplete,
     portMultiSelect = false,
     portMenuOpen = false,
     onPortContextMenu,
@@ -133,6 +151,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const portAnchor = useRef<string | null>(null);
   const latest = useRef(props);
   const gesture = useRef<Gesture | null>(null);
+  const annotationClick = useRef<{ id: string; time: number } | null>(null);
   const summaryScroll = useRef<{
     pointer: number;
     y: number;
@@ -499,6 +518,10 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [rename]);
   const visible = preview ?? document;
   const viewport = visible.viewport;
+  const physicalElements = useMemo(
+    () => visible.elements.filter((item) => !isAnnotation(item)),
+    [visible.elements],
+  );
   const touchElement =
     touchControls && selection?.type === 'element'
       ? visible.elements.find((element) => element.id === selection.id)
@@ -594,6 +617,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
       onSelect({ type: 'port', id: id! }, event.pointerType !== 'touch');
     onGestureChange?.(true);
   }
+  function beginArrowEndpoint(event: ReactPointerEvent<HTMLButtonElement>) {
+    const id = event.currentTarget.dataset.arrowObjectId;
+    const side = event.currentTarget.dataset.arrowEndpoint;
+    if (id && (side === 'start' || side === 'end'))
+      begin(event, 'endpoint', id, side);
+  }
   function capturePointer(event: ReactPointerEvent<HTMLDivElement>) {
     if (
       event.target instanceof Element &&
@@ -662,6 +691,41 @@ export function BoardCanvas(props: BoardCanvasProps) {
       onGestureChange?.(true);
       event.stopPropagation();
       return;
+    }
+    if (
+      (annotationKinds as readonly string[]).includes(tool) &&
+      event.button === 0 &&
+      pointers.current.size <= 1
+    ) {
+      const base = wheelViewport.current
+        ? { ...latest.current.document, viewport: wheelViewport.current }
+        : latest.current.document;
+      finishViewport();
+      const at = screenToWorld(local(event), base.viewport);
+      const element = makeAnnotation(
+        tool as AnnotationKind,
+        Math.round(at.x / 8) * 8,
+        Math.round(at.y / 8) * 8,
+      );
+      if (base.elements.length >= 256) {
+        setNotice('This board supports up to 256 objects.');
+        return;
+      }
+      const next = addAnnotation(base, element);
+      event.preventDefault();
+      event.stopPropagation();
+      root.current?.focus({ preventScroll: true });
+      root.current?.setPointerCapture(event.pointerId);
+      gesture.current = {
+        type: 'draw',
+        id: element.id,
+        pointer: event.pointerId,
+        start: local(event),
+        base: next,
+        moved: false,
+      };
+      showPreview(next);
+      onGestureChange?.(true);
     }
   }
   function pointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -747,6 +811,51 @@ export function BoardCanvas(props: BoardCanvasProps) {
       return;
     active.moved = true;
     suppressClickUntil.current = event.timeStamp + 500;
+    if (active.type === 'draw' || active.type === 'endpoint') {
+      const element = active.base.elements.find(
+        (item) => item.id === active.id,
+      );
+      if (!element) return;
+      const world = screenToWorld(point, active.base.viewport);
+      const snap = snapRect(
+        { ...world, width: 0, height: 0 },
+        active.base.elements.filter((item) => item.id !== element.id),
+        active.base.viewport.zoom,
+        event.altKey,
+      );
+      const end = { x: snap.rect.x, y: snap.rect.y };
+      let next: BoardElement;
+      if (active.type === 'endpoint') {
+        const endpoints = annotationEndpoints(element);
+        next = setArrowEndpoints(
+          element,
+          active.handle === 'start' ? end : endpoints.start,
+          active.handle === 'end' ? end : endpoints.end,
+        );
+      } else {
+        const start = screenToWorld(active.start, active.base.viewport);
+        if (element.type === 'arrow')
+          next = setArrowEndpoints(element, start, end);
+        else {
+          const rect = marqueeRect(start, end);
+          next = {
+            ...element,
+            x: clamp(rect.x, -100000, 100000),
+            y: clamp(rect.y, -100000, 100000),
+            width: clamp(rect.width, 16, 20000),
+            height: clamp(rect.height, 16, 20000),
+          };
+        }
+      }
+      setGuides(snap.guides);
+      showPreview({
+        ...active.base,
+        elements: active.base.elements.map((item) =>
+          item.id === next.id ? next : item,
+        ),
+      });
+      return;
+    }
     if (active.type === 'marquee') {
       const rect = marqueeRect(
         screenToWorld(active.start, active.base.viewport),
@@ -923,6 +1032,27 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (!active || active.pointer !== event.pointerId) return;
     gesture.current = null;
     if (active.type === 'move') {
+      if (!active.moved && !active.modified && event.pointerType !== 'touch') {
+        const element = latest.current.document.elements.find(
+          (item) => item.id === active.id,
+        );
+        if (element?.type === 'text' && active.ids?.length === 1) {
+          const previous = annotationClick.current;
+          if (
+            previous?.id === element.id &&
+            event.timeStamp - previous.time < 450
+          ) {
+            annotationClick.current = null;
+            onSelect({ type: 'element', id: element.id }, false);
+            setRename({
+              type: 'annotation',
+              id: element.id,
+              value: annotationPresentation(element).text,
+            });
+          } else
+            annotationClick.current = { id: element.id, time: event.timeStamp };
+        }
+      }
       suppressClickUntil.current = event.timeStamp + 500;
       if (
         !active.moved &&
@@ -947,6 +1077,16 @@ export function BoardCanvas(props: BoardCanvasProps) {
     const next = previewRef.current;
     showPreview(null);
     onGestureChange?.(false);
+    if (active.type === 'draw' && next) {
+      const added = next.elements.find((item) => item.id === active.id);
+      if (added) {
+        onChange(addAnnotation(document, added), 'Add annotation');
+        onSelect({ type: 'element', id: added.id });
+      }
+      suppressClickUntil.current = event.timeStamp + 500;
+      onToolComplete?.();
+      return;
+    }
     if (!next || !active.moved) return;
     if (active.type === 'pan') {
       onChange({ ...document, viewport: next.viewport }, 'Viewport');
@@ -1002,6 +1142,9 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 y: changed.y,
                 width: changed.width,
                 height: changed.height,
+                ...(active.type === 'endpoint'
+                  ? { properties: changed.properties }
+                  : {}),
               }
             : item,
         ),
@@ -1096,6 +1239,23 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (!rename) return;
     const current = rename;
     setRename(null);
+    if (current.type === 'annotation') {
+      onChange(
+        {
+          ...document,
+          elements: document.elements.map((item) =>
+            item.id === current.id
+              ? {
+                  ...item,
+                  properties: { ...item.properties, text: current.value },
+                }
+              : item,
+          ),
+        },
+        'Edit annotation text',
+      );
+      return;
+    }
     if (current.type === 'element')
       onChange(
         {
@@ -1351,10 +1511,37 @@ export function BoardCanvas(props: BoardCanvasProps) {
             event.stopPropagation();
           else onSelect(null);
           cancelGesture();
+          onToolComplete?.();
           setSourcePort(null);
           setHoverPort(null);
           setRename(null);
           setNotice('');
+          return;
+        }
+        if (
+          event.key === 'Enter' &&
+          !disabled &&
+          (annotationKinds as readonly string[]).includes(tool)
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (document.elements.length >= 256) {
+            setNotice('This board supports up to 256 objects.');
+            return;
+          }
+          const box = root.current?.getBoundingClientRect();
+          const center = screenToWorld(
+            { x: (box?.width ?? 800) / 2, y: (box?.height ?? 600) / 2 },
+            document.viewport,
+          );
+          const element = makeAnnotation(
+            tool as AnnotationKind,
+            Math.round((center.x - 120) / 8) * 8,
+            Math.round((center.y - 40) / 8) * 8,
+          );
+          onChange(addAnnotation(document, element), 'Add annotation');
+          onSelect({ type: 'element', id: element.id });
+          onToolComplete?.();
           return;
         }
         if (event.key === ' ') {
@@ -1452,16 +1639,280 @@ export function BoardCanvas(props: BoardCanvasProps) {
       />
       <div
         className="board-world"
-        style={{
-          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
-        }}
+        style={
+          {
+            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+            '--board-zoom': viewport.zoom,
+          } as CSSProperties
+        }
       >
-        <SummaryLinks elements={visible.elements} />
+        <SummaryLinks elements={physicalElements} />
         {visible.elements
           .slice()
           .sort((a, b) => a.z - b.z)
           .map((element) => {
             const selected = selectedIds.includes(element.id);
+            if (isAnnotation(element)) {
+              const settings = annotationPresentation(element);
+              const endpoint = annotationEndpoints(element);
+              return (
+                <section
+                  key={element.id}
+                  className={`board-element board-annotation-object annotation-${element.type}`}
+                  data-board-element-id={element.id}
+                  data-annotation-type={element.type}
+                  data-selected={selected}
+                  aria-label={`${element.type} annotation${element.name ? ` ${element.name}` : ''}`}
+                  tabIndex={disabled ? -1 : 0}
+                  style={{
+                    left: element.x,
+                    top: element.y,
+                    width: element.width,
+                    height: element.height,
+                    zIndex:
+                      element.type === 'highlight'
+                        ? element.z - 200001
+                        : element.z,
+                  }}
+                  onPointerDown={(event) => {
+                    if (
+                      tool === 'pan' ||
+                      root.current?.classList.contains('space-pan') ||
+                      event.button === 1
+                    )
+                      begin(event, 'pan');
+                    else if (tool === 'select' && event.pointerType !== 'touch')
+                      begin(event, 'move', element.id);
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!disabled && tool === 'select')
+                      chooseElement(
+                        element.id,
+                        event,
+                        true,
+                        lastPointerType.current !== 'touch',
+                      );
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      (event.key === 'Enter' || event.key === 'F2') &&
+                      !disabled
+                    ) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onSelect({ type: 'element', id: element.id });
+                      if (element.type === 'text' && event.key === 'F2')
+                        setRename({
+                          type: 'annotation',
+                          id: element.id,
+                          value: settings.text,
+                        });
+                    }
+                  }}
+                  onDoubleClick={(event) => {
+                    if (
+                      element.type === 'text' &&
+                      !disabled &&
+                      tool === 'select'
+                    ) {
+                      event.stopPropagation();
+                      setRename({
+                        type: 'annotation',
+                        id: element.id,
+                        value: settings.text,
+                      });
+                    }
+                  }}
+                >
+                  {rename?.type === 'annotation' && rename.id === element.id ? (
+                    <textarea
+                      className="board-annotation-editor"
+                      aria-label="Annotation text"
+                      autoFocus
+                      maxLength={10000}
+                      value={rename.value}
+                      style={{
+                        fontSize: settings.fontSize,
+                        color: settings.textColor,
+                        textAlign: settings.align,
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) =>
+                        setRename({ ...rename, value: event.target.value })
+                      }
+                      onBlur={commitName}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          setRename(null);
+                        } else if (
+                          event.key === 'Enter' &&
+                          (event.metaKey || event.ctrlKey)
+                        ) {
+                          event.preventDefault();
+                          commitName();
+                        }
+                      }}
+                    />
+                  ) : (
+                    <BoardAnnotation element={element} />
+                  )}
+                  {element.type !== 'text' && (
+                    <svg
+                      className="board-annotation-hit"
+                      width={element.width}
+                      height={element.height}
+                      aria-hidden="true"
+                    >
+                      {element.type === 'arrow' ? (
+                        <line
+                          x1={endpoint.start.x - element.x}
+                          y1={endpoint.start.y - element.y}
+                          x2={endpoint.end.x - element.x}
+                          y2={endpoint.end.y - element.y}
+                        />
+                      ) : (
+                        <rect
+                          x="0"
+                          y="0"
+                          width={element.width}
+                          height={element.height}
+                          rx={settings.cornerRadius}
+                        />
+                      )}
+                    </svg>
+                  )}
+                  {selected &&
+                    selectedIds.length === 1 &&
+                    !disabled &&
+                    tool === 'select' &&
+                    (element.type === 'arrow'
+                      ? (['start', 'end'] as const).map((side) => (
+                          <button
+                            type="button"
+                            key={side}
+                            className="board-arrow-endpoint"
+                            aria-label={`Arrow ${side}`}
+                            style={{
+                              left: endpoint[side].x - element.x,
+                              top: endpoint[side].y - element.y,
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                            data-arrow-object-id={element.id}
+                            data-arrow-endpoint={side}
+                            onPointerDown={beginArrowEndpoint}
+                            onKeyDown={(event) => {
+                              if (
+                                ![
+                                  'ArrowLeft',
+                                  'ArrowRight',
+                                  'ArrowUp',
+                                  'ArrowDown',
+                                ].includes(event.key)
+                              )
+                                return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const amount = event.altKey
+                                ? 1
+                                : event.shiftKey
+                                  ? 40
+                                  : 8;
+                              const point = {
+                                x:
+                                  endpoint[side].x +
+                                  (event.key === 'ArrowLeft'
+                                    ? -amount
+                                    : event.key === 'ArrowRight'
+                                      ? amount
+                                      : 0),
+                                y:
+                                  endpoint[side].y +
+                                  (event.key === 'ArrowUp'
+                                    ? -amount
+                                    : event.key === 'ArrowDown'
+                                      ? amount
+                                      : 0),
+                              };
+                              const next = setArrowEndpoints(
+                                element,
+                                side === 'start' ? point : endpoint.start,
+                                side === 'end' ? point : endpoint.end,
+                              );
+                              onChange(
+                                {
+                                  ...document,
+                                  elements: document.elements.map((item) =>
+                                    item.id === element.id ? next : item,
+                                  ),
+                                },
+                                'Move arrow endpoint',
+                              );
+                            }}
+                          />
+                        ))
+                      : handles.map((handle) => (
+                          <button
+                            key={handle}
+                            type="button"
+                            className={`board-resize-handle handle-${handle}`}
+                            aria-label={`Resize ${element.name || element.type} ${handle}`}
+                            onPointerDown={(event) =>
+                              begin(event, 'resize', element.id, handle)
+                            }
+                            onKeyDown={(event) => {
+                              if (
+                                ![
+                                  'ArrowLeft',
+                                  'ArrowRight',
+                                  'ArrowUp',
+                                  'ArrowDown',
+                                ].includes(event.key)
+                              )
+                                return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const step = event.shiftKey ? 40 : 8;
+                              const next = resizeRect(
+                                element,
+                                handle,
+                                {
+                                  x:
+                                    event.key === 'ArrowLeft'
+                                      ? -step
+                                      : event.key === 'ArrowRight'
+                                        ? step
+                                        : 0,
+                                  y:
+                                    event.key === 'ArrowUp'
+                                      ? -step
+                                      : event.key === 'ArrowDown'
+                                        ? step
+                                        : 0,
+                                },
+                                { width: 16, height: 16 },
+                                event.altKey,
+                              );
+                              onChange(
+                                {
+                                  ...document,
+                                  elements: document.elements.map((item) =>
+                                    item.id === element.id
+                                      ? { ...item, ...next }
+                                      : item,
+                                  ),
+                                },
+                                'Resize object',
+                              );
+                            }}
+                          />
+                        )))}
+                </section>
+              );
+            }
             const face = activeFace(element);
             const devicePorts = visible.ports.filter(
               (port) => port.deviceId === element.id,
@@ -2040,7 +2491,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 [cable.sourcePortId, cable.targetPortId].includes(
                   hoverPort ?? (selection?.type === 'port' ? selection.id : ''),
                 );
-              const hitPath = cableHitPath(a, b, visible.elements);
+              const hitPath = cableHitPath(a, b, physicalElements);
               const label =
                 cable.name ||
                 `Cable: ${source?.name ?? 'Port'} ↔ ${target?.name ?? 'Port'}`;

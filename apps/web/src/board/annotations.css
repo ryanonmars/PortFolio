@@ -1,0 +1,68 @@
+.board-annotation-visual,
+.board-annotation-text {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.board-annotation-visual *,
+.board-annotation-text * {
+  pointer-events: none;
+}
+.board-annotation-text {
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 6px;
+  line-height: 1.3;
+  font-weight: 500;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+}
+.board-annotation-shape {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+.board-annotation-label {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 12px;
+  max-height: calc(100% - 20px);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 500;
+  pointer-events: none;
+}
+.board-annotation-arrow .board-annotation-label {
+  right: auto;
+  width: max-content;
+  max-width: max(180px, calc(100% - 16px));
+  max-height: none;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #152019;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+.board-annotation-properties {
+  display: grid;
+  gap: 12px;
+}
+.board-annotation-properties .board-annotation-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.board-annotation-properties .board-annotation-check input {
+  width: auto;
+  min-height: auto;
+  margin: 0;
+}

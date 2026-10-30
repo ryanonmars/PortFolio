@@ -6,7 +6,48 @@ import {
   type BoardDocument,
   type BoardElement,
   type BoardPort,
+  boardAnnotationTypes,
 } from '../../../../packages/shared/src/board.js';
+export type ObjectOrder = 'forward' | 'backward' | 'front' | 'back';
+export function orderElement(
+  document: BoardDocument,
+  id: string,
+  action: ObjectOrder,
+): BoardDocument {
+  const ordered = document.elements.slice().sort((a, b) => a.z - b.z);
+  const selected = ordered.find((item) => item.id === id);
+  if (!selected) return document;
+  // Regions occupy a background plane so even opaque fills cannot cover equipment.
+  const background = ordered.filter((item) => item.type === 'highlight');
+  const foreground = ordered.filter((item) => item.type !== 'highlight');
+  const items = selected.type === 'highlight' ? background : foreground;
+  const index = items.findIndex((item) => item.id === id);
+  const target =
+    action === 'front'
+      ? items.length - 1
+      : action === 'back'
+        ? 0
+        : Math.max(
+            0,
+            Math.min(items.length - 1, index + (action === 'forward' ? 1 : -1)),
+          );
+  if (target === index) return document;
+  const [element] = items.splice(index, 1);
+  items.splice(target, 0, element!);
+  return {
+    ...document,
+    elements: [...background, ...foreground].map((item, z) => ({ ...item, z })),
+  };
+}
+export function addAnnotation(
+  document: BoardDocument,
+  element: BoardElement,
+): BoardDocument {
+  const items = document.elements.slice().sort((a, b) => a.z - b.z);
+  if (element.type === 'highlight') items.unshift(element);
+  else items.push(element);
+  return { ...document, elements: items.map((item, z) => ({ ...item, z })) };
+}
 export function makeBoardPort(
   deviceId: string,
   kind: BoardPort['kind'],
@@ -127,7 +168,9 @@ export function duplicateElement(
     ...(element.type === 'summary'
       ? { properties: structuredClone(element.properties) }
       : {}),
-    name: `${element.name} copy`,
+    name: (boardAnnotationTypes as readonly string[]).includes(element.type)
+      ? element.name
+      : `${element.name} copy`,
     x: element.x + 24,
     y: element.y + 24,
     z: Math.max(0, ...document.elements.map((item) => item.z)) + 1,

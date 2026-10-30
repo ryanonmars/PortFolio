@@ -15,7 +15,11 @@ import {
   type BoardPort,
 } from '../../../../packages/shared/src/board.js';
 import { api } from '../api.js';
-import { BoardCanvas, type BoardSelection } from './BoardCanvas.js';
+import {
+  BoardCanvas,
+  type BoardSelection,
+  type BoardTool,
+} from './BoardCanvas.js';
 import { BoardInspector } from './BoardInspector.js';
 import { MobileSheet } from './MobileSheet.js';
 import { useMobileLayout } from './use-mobile-layout.js';
@@ -30,6 +34,7 @@ import {
   type PortSettingKey,
 } from './port-clipboard.js';
 import type { Point } from './geometry.js';
+import { annotationKinds, type AnnotationKind } from './annotations.js';
 import { duplicateElement, removeObject } from './commands.js';
 
 export interface BoardEditorHandle {
@@ -133,9 +138,7 @@ export const BoardEditor = forwardRef<
     });
     return () => cancelAnimationFrame(frame);
   }, [disabled]);
-  const [tool, setTool] = useState<'select' | 'pan' | 'cable' | 'ports'>(
-    'select',
-  );
+  const [tool, setTool] = useState<BoardTool>('select');
   const [dock, setDock] = useState(false);
   const [types, setTypes] = useState(false);
   const [fitToken, setFitToken] = useState(0);
@@ -409,7 +412,7 @@ export const BoardEditor = forwardRef<
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
   });
-  function add(type: BoardElement['type'], deviceType = 'Other') {
+  function add(type: 'device' | 'network' | 'summary', deviceType = 'Other') {
     if (blocked()) return;
     const rect = surface.current?.getBoundingClientRect();
     const x =
@@ -793,6 +796,12 @@ export const BoardEditor = forwardRef<
             </ul>
           </details>
         )}
+      {(annotationKinds as readonly string[]).includes(tool) && (
+        <div className="board-mode-status" role="status">
+          Place {tool === 'highlight' ? 'highlight region' : tool}
+          <button onClick={() => setTool('select')}>Cancel</button>
+        </div>
+      )}
       {tool === 'cable' && (
         <div className="board-mode-status" role="status">
           Select two ports{' '}
@@ -843,6 +852,36 @@ export const BoardEditor = forwardRef<
                 Cable
               </button>
               <button onClick={() => add('summary')}>Summary</button>
+              <div className="board-dock-annotations" aria-label="Annotations">
+                <span>Annotations</span>
+                {(
+                  [
+                    ['text', 'T', 'Text'],
+                    ['arrow', '↗', 'Arrow'],
+                    ['rectangle', '▭', 'Rectangle'],
+                    ['highlight', '▧', 'Highlight Region'],
+                  ] as [AnnotationKind, string, string][]
+                ).map(([kind, icon, label]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => {
+                      if (blocked()) return;
+                      setTool(kind);
+                      setInspectorOpen(false);
+                      setDock(false);
+                      requestAnimationFrame(() =>
+                        surface.current
+                          ?.querySelector<HTMLElement>('.board-canvas')
+                          ?.focus({ preventScroll: true }),
+                      );
+                    }}
+                  >
+                    <span aria-hidden="true">{icon}</span>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </>
           ) : (
             <>
@@ -879,6 +918,7 @@ export const BoardEditor = forwardRef<
         onPortContextMenu={openPortMenu}
         onGestureChange={updateGesture}
         fitToken={fitToken}
+        onToolComplete={() => setTool('select')}
       />
       {inspectorOpen &&
         (!mobile || !gesture) &&

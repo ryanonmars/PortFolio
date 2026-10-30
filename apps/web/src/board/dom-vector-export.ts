@@ -43,7 +43,7 @@ const number = (value: number) => String(Math.round(value * 1000) / 1000);
 const transparent = (value: string) =>
   !value || value === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(value);
 const omitted =
-  '.board-device-info-measure,.board-guide-layer,.board-cable-hit,.board-resize-handle,.board-port-grip,.board-port-layout-grid,.board-slot-grid,.board-slot,.board-port-summary,input,textarea,select';
+  '.board-annotation-hit,.board-arrow-endpoint,.board-device-info-measure,.board-guide-layer,.board-cable-hit,.board-resize-handle,.board-port-grip,.board-port-layout-grid,.board-slot-grid,.board-slot,.board-port-summary,input,textarea,select';
 const svgTags = new Set([
   'svg',
   'g',
@@ -156,6 +156,12 @@ export function renderedBoardSvg(
   )) {
     const rect = position(path.getBoundingClientRect());
     include(rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6);
+  }
+  for (const label of world.querySelectorAll<HTMLElement>(
+    '.board-annotation-arrow .board-annotation-label',
+  )) {
+    const rect = position(label.getBoundingClientRect());
+    include(rect.x, rect.y, rect.width, rect.height);
   }
   if (!Number.isFinite(left)) {
     left = 0;
