@@ -1,5 +1,3 @@
-import type { BoardDocument } from '../../../../packages/shared/src/board.js';
-
 export type SpotlightMembership = 'native' | 'tagged' | 'both' | null;
 
 /** Normalize a viewing key without validating or changing authored settings. */
@@ -39,38 +37,4 @@ export function spotlightMembership(
       : tagged
         ? 'tagged'
         : null;
-}
-
-export function discoverVlans(
-  document: Pick<BoardDocument, 'ports' | 'elements'>,
-): string[] {
-  const values = new Set<string>();
-  const add = (value: unknown) => {
-    const normalized = normalizeVlan(value);
-    if (normalized) values.add(normalized);
-  };
-  for (const port of document.ports) {
-    add(port.nativeVlan);
-    for (const value of taggedValues(port.taggedVlans)) add(value);
-  }
-  for (const element of document.elements) {
-    if (element.type !== 'network') continue;
-    const entries = element.properties.entries;
-    if (!Array.isArray(entries)) continue;
-    for (const entry of entries)
-      if (entry && typeof entry === 'object' && !Array.isArray(entry))
-        add(entry.vlanId ?? entry.vlan_id);
-  }
-  return [...values].sort((left, right) => {
-    const integer = /^-?\d+$/;
-    const numericLeft = integer.test(left),
-      numericRight = integer.test(right);
-    if (numericLeft && numericRight) {
-      const a = BigInt(left),
-        b = BigInt(right);
-      return a < b ? -1 : a > b ? 1 : 0;
-    }
-    if (numericLeft !== numericRight) return numericLeft ? -1 : 1;
-    return left.localeCompare(right, 'en', { numeric: true });
-  });
 }

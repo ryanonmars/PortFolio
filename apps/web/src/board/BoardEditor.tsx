@@ -24,6 +24,7 @@ import { BoardInspector } from './BoardInspector.js';
 import { MobileSheet } from './MobileSheet.js';
 import { VlanSpotlight } from './VlanSpotlight.js';
 import { useMobileLayout } from './use-mobile-layout.js';
+import { useDismissibleMenus } from './use-dismissible-menus.js';
 import { BoardSession } from './session.js';
 import { PortContextMenu } from './PortContextMenu.js';
 import {
@@ -111,7 +112,9 @@ export const BoardEditor = forwardRef<
   } | null>(null);
   function selectObject(next: BoardSelection | null, inspect = true) {
     setSelection(next);
-    setInspectorOpen(Boolean(next) && inspect);
+    const multipleElements =
+      next?.type === 'element' && (next.ids?.length ?? 1) > 1;
+    setInspectorOpen(Boolean(next) && inspect && !multipleElements);
     if (next && inspect && mobile) {
       setDock(false);
       setTypes(false);
@@ -149,6 +152,7 @@ export const BoardEditor = forwardRef<
   const [imageExporting, setImageExporting] = useState(false);
   const [gesture, setGesture] = useState(false);
   const surface = useRef<HTMLDivElement>(null);
+  useDismissibleMenus(surface);
   const document = session.document;
   useImperativeHandle(
     ref,
@@ -524,39 +528,25 @@ export const BoardEditor = forwardRef<
         });
     } else selectObject(null);
   }
-  const inspectorContent =
-    selection?.type === 'element' && (selection.ids?.length ?? 1) > 1 ? (
-      <aside className="board-inspector" aria-label="Object inspector">
-        <header>
-          <h2>{selection.ids!.length} objects selected</h2>
-          <button
-            aria-label="Close inspector"
-            onClick={(event) => closeInspector(event.detail === 0)}
-          >
-            ×
-          </button>
-        </header>
-      </aside>
-    ) : (
-      selection &&
-      !(
-        selection.type === 'port' &&
-        (portMenu ||
-          !inspectPort ||
-          portMultiSelect ||
-          (selection.ids?.length ?? 1) > 1)
-      ) && (
-        <BoardInspector
-          key={`${selection.type}:${selection.id}`}
-          document={document}
-          selection={selection}
-          onChange={change}
-          onClose={closeInspector}
-          onDelete={remove}
-          onDuplicate={duplicate}
-          onCopyPortField={copyField}
-        />
-      )
+  const inspectorContent = selection &&
+    !(selection.type === 'element' && (selection.ids?.length ?? 1) > 1) &&
+    !(
+      selection.type === 'port' &&
+      (portMenu ||
+        !inspectPort ||
+        portMultiSelect ||
+        (selection.ids?.length ?? 1) > 1)
+    ) && (
+      <BoardInspector
+        key={`${selection.type}:${selection.id}`}
+        document={document}
+        selection={selection}
+        onChange={change}
+        onClose={closeInspector}
+        onDelete={remove}
+        onDuplicate={duplicate}
+        onCopyPortField={copyField}
+      />
     );
   const inactive = disabled || locked || reloading;
   return (
@@ -689,7 +679,6 @@ export const BoardEditor = forwardRef<
           <span>Cables</span>
         </button>
         <VlanSpotlight
-          document={document}
           value={spotlight}
           onChange={setSpotlight}
           disabled={inactive}

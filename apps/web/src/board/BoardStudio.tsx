@@ -22,6 +22,7 @@ import { AuthForm } from '../forms.js';
 import { BoardEditor, type BoardEditorHandle } from './BoardEditor.js';
 import type { PortClipboard } from './port-clipboard.js';
 import { useMobileLayout, useVisualViewport } from './use-mobile-layout.js';
+import { useDismissibleMenus } from './use-dismissible-menus.js';
 import './studio.css';
 
 type NameDialog = {
@@ -40,6 +41,7 @@ export function BoardStudio() {
     '--mobile-left': `${viewport.left}px`,
   } as CSSProperties;
   const browser = useRef<HTMLElement>(null);
+  useDismissibleMenus(browser);
   const explorerTrigger = useRef<HTMLButtonElement>(null);
   const [portClipboard, setPortClipboard] = useState<PortClipboard | null>(
     null,

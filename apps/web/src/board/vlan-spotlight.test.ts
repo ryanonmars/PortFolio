@@ -4,11 +4,7 @@ import {
   type BoardDocument,
 } from '../../../../packages/shared/src/board.js';
 import { makeBoardPort } from './commands.js';
-import {
-  discoverVlans,
-  normalizeVlan,
-  spotlightMembership,
-} from './vlan-spotlight.js';
+import { normalizeVlan, spotlightMembership } from './vlan-spotlight.js';
 
 describe('temporary VLAN spotlight', () => {
   it.each([
@@ -79,76 +75,6 @@ describe('temporary VLAN spotlight', () => {
     expect(normalizeVlan('0009007199254740993')).toBe('9007199254740993');
   });
 
-  it('discovers memberships on ports without requiring Network containers', () => {
-    const document = emptyBoardDocument();
-    document.ports = [
-      {
-        ...makeBoardPort('router', 'rj45', 0, 0, 'WAN'),
-        nativeVlan: '020',
-        taggedVlans: ['Voice 10', '3', '0'],
-        pvid: '999',
-      },
-      {
-        ...makeBoardPort('custom', 'sfp', 2, 5, 'Rear', 'rear'),
-        nativeVlan: '2',
-        taggedVlans: ['20', 'Voice 2', '0'],
-      },
-    ];
-    const before = structuredClone(document);
-    expect(discoverVlans(document)).toEqual([
-      '0',
-      '2',
-      '3',
-      '20',
-      'Voice 2',
-      'Voice 10',
-    ]);
-    expect(document).toEqual(before);
-  });
-
-  it('adds Network entry IDs including numeric zero, ignoring empty and unrelated properties', () => {
-    const document = emptyBoardDocument();
-    document.elements = [
-      {
-        id: 'network',
-        type: 'network',
-        name: '',
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 220,
-        z: 0,
-        color: '',
-        properties: {
-          entries: [
-            { vlanId: 0 },
-            { vlanId: 20 },
-            { vlanId: '020' },
-            { vlan_id: '30' },
-            { vlanId: '' },
-            { pvid: '40' },
-            null,
-            [],
-            'ignored',
-          ],
-        },
-      },
-      {
-        id: 'device',
-        type: 'device',
-        name: '',
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 220,
-        z: 0,
-        color: '',
-        properties: { entries: [{ vlanId: '50' }] },
-      },
-    ];
-    expect(discoverVlans(document)).toEqual(['0', '20', '30']);
-  });
-
   it('updates derived matches immediately after configuration changes without saving view state', () => {
     const document = emptyBoardDocument();
     document.ports = [makeBoardPort('device', 'rj45', 0, 0, 'Port')];
@@ -158,7 +84,6 @@ describe('temporary VLAN spotlight', () => {
     };
     expect(spotlightMembership(document.ports[0]!, '20')).toBeNull();
     expect(spotlightMembership(changed.ports[0]!, '20')).toBe('native');
-    expect(discoverVlans(changed)).toEqual(['20', '30']);
     expect(document.ports[0]!.nativeVlan).toBe('');
     expect(Object.keys(changed)).not.toContain('spotlight');
   });
@@ -179,7 +104,6 @@ describe('temporary VLAN spotlight', () => {
     }));
     const before = JSON.stringify(document);
     const start = performance.now();
-    expect(discoverVlans(document)).toEqual(['0', '20', '30', '40', '50']);
     const matches = document.ports.map((port) =>
       spotlightMembership(port, '20'),
     );

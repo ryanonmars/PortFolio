@@ -36,6 +36,7 @@ import {
   isAnnotation,
   makeAnnotation,
   setArrowEndpoints,
+  snapArrowEndpoint,
   type AnnotationKind,
 } from './annotations.js';
 import { Connector } from '../visual/Connector.js';
@@ -371,7 +372,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     cancelSummaryScroll();
     setTouchSummary(null);
     if (gesture.current?.type === 'marquee')
-      onSelect(gesture.current.selection ?? null);
+      onSelect(gesture.current.selection ?? null, false);
     const captures = new Set(pointers.current.keys());
     if (gesture.current) captures.add(gesture.current.pointer);
     gesture.current = null;
@@ -461,7 +462,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (active || pinch.current || summaryScroll.current) {
       cancelSummaryScroll();
       if (active?.type === 'marquee')
-        latest.current.onSelect(active.selection ?? null);
+        latest.current.onSelect(active.selection ?? null, false);
       gesture.current = null;
       for (const pointer of new Set([
         ...pointers.current.keys(),
@@ -496,7 +497,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       const active = gesture.current;
       cancelSummaryScroll();
       if (active?.type === 'marquee')
-        latest.current.onSelect(active.selection ?? null);
+        latest.current.onSelect(active.selection ?? null, false);
       gesture.current = null;
       pinch.current = null;
       for (const pointer of new Set([
@@ -628,6 +629,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       handle,
       moved: false,
     };
+    if (type === 'marquee') onSelect(selection, false);
     if (type === 'resize')
       onSelect({ type: 'element', id: id! }, event.pointerType !== 'touch');
     if (type === 'port')
@@ -833,17 +835,31 @@ export function BoardCanvas(props: BoardCanvasProps) {
         (item) => item.id === active.id,
       );
       if (!element) return;
-      const world = screenToWorld(point, active.base.viewport);
+      const grabbedEndpoint =
+        active.type === 'endpoint'
+          ? annotationEndpoints(element)[
+              active.handle === 'start' ? 'start' : 'end'
+            ]
+          : null;
+      const world = grabbedEndpoint
+        ? { x: grabbedEndpoint.x + dx, y: grabbedEndpoint.y + dy }
+        : screenToWorld(point, active.base.viewport);
       const snap = snapRect(
         { ...world, width: 0, height: 0 },
         active.base.elements.filter((item) => item.id !== element.id),
         active.base.viewport.zoom,
         event.altKey,
       );
-      const end = { x: snap.rect.x, y: snap.rect.y };
+      let end = { x: snap.rect.x, y: snap.rect.y };
       let next: BoardElement;
       if (active.type === 'endpoint') {
         const endpoints = annotationEndpoints(element);
+        end = snapArrowEndpoint(
+          active.handle === 'start' ? endpoints.end : endpoints.start,
+          end,
+          active.base.viewport.zoom,
+          { constrain: event.shiftKey, bypass: event.altKey },
+        );
         next = setArrowEndpoints(
           element,
           active.handle === 'start' ? end : endpoints.start,
@@ -851,9 +867,13 @@ export function BoardCanvas(props: BoardCanvasProps) {
         );
       } else {
         const start = screenToWorld(active.start, active.base.viewport);
-        if (element.type === 'arrow')
+        if (element.type === 'arrow') {
+          end = snapArrowEndpoint(start, end, active.base.viewport.zoom, {
+            constrain: event.shiftKey,
+            bypass: event.altKey,
+          });
           next = setArrowEndpoints(element, start, end);
-        else {
+        } else {
           const rect = marqueeRect(start, end);
           next = {
             ...element,
@@ -864,7 +884,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
           };
         }
       }
-      setGuides(snap.guides);
+      setGuides(snap.guides.filter((guide) => end[guide.axis] === guide.value));
       showPreview({
         ...active.base,
         elements: active.base.elements.map((item) =>
@@ -883,12 +903,15 @@ export function BoardCanvas(props: BoardCanvasProps) {
         active.additive && active.selection?.type === 'element'
           ? (active.selection.ids ?? [active.selection.id])
           : [];
-      selectIds([
-        ...new Set([
-          ...previous,
-          ...enclosedElementIds(active.base.elements, rect),
-        ]),
-      ]);
+      selectIds(
+        [
+          ...new Set([
+            ...previous,
+            ...enclosedElementIds(active.base.elements, rect),
+          ]),
+        ],
+        false,
+      );
       return;
     }
     if (active.type === 'move') {

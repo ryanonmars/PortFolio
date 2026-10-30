@@ -8,6 +8,7 @@ import {
   type BoardRecord,
 } from '../../packages/shared/src/board.js';
 import { makeBoardPort } from '../../apps/web/src/board/commands.js';
+import { annotationEndpoints } from '../../apps/web/src/board/annotations.js';
 
 test.use({ actionTimeout: 15_000 });
 const cookies = new Map<
@@ -746,4 +747,110 @@ test('keyboard face controls do not place an armed annotation', async ({
       .face,
   ).toBe('rear');
   await page.keyboard.press('Escape');
+});
+
+test('long arrows stay axis-aligned through drawing, off-center endpoint grabs and reload', async ({
+  page,
+}, info) => {
+  const document = emptyBoardDocument();
+  document.viewport = { x: 16.25, y: 24.5, zoom: mobile() ? 0.35 : 1 };
+  const board = await setup(page, document);
+  const canvas = (await page.getByTestId('board-canvas').boundingBox())!;
+  async function armArrow() {
+    await closeInspector(page);
+    await page.getByRole('button', { name: 'Add object', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Equipment Dock', exact: true })
+      .getByRole('button', { name: 'Arrow', exact: true })
+      .click();
+  }
+  await armArrow();
+  const start = { x: canvas.x + 116.3, y: canvas.y + 130.7 };
+  await drag(page, start, {
+    x: start.x + 12,
+    y: canvas.y + canvas.height - 90,
+  });
+  await saved(page);
+  let current = await read(page, board.id);
+  const vertical = current.document.elements[0]!;
+  const points = annotationEndpoints(vertical);
+  expect(points.start.x).toBe(points.end.x);
+  expect(points.end.y - points.start.y).toBeGreaterThan(350);
+  expect(points.start.x).toBeCloseTo(
+    (116.3 - document.viewport.x) / document.viewport.zoom,
+    2,
+  );
+  await expect(
+    object(page, vertical.id).locator('.board-annotation-shape line'),
+  ).toHaveAttribute('x1', '8');
+  await expect(
+    object(page, vertical.id).locator('.board-annotation-shape line'),
+  ).toHaveAttribute('x2', '8');
+  if (mobile()) await closeInspector(page);
+  const handle = (await page
+    .getByRole('button', { name: 'Arrow end', exact: true })
+    .boundingBox())!;
+  const grab = {
+    x: handle.x + handle.width / 2,
+    y: handle.y + handle.height / 2 + 6,
+  };
+  await drag(page, grab, {
+    x: grab.x,
+    y: grab.y - 56 * document.viewport.zoom,
+  });
+  await saved(page);
+  current = await read(page, board.id);
+  const adjusted = annotationEndpoints(
+    current.document.elements.find((element) => element.id === vertical.id)!,
+  );
+  expect(adjusted.start).toEqual(points.start);
+  expect(adjusted.end.x).toBe(adjusted.start.x);
+  expect(adjusted.end.y).toBeCloseTo(points.end.y - 56, 3);
+  await page.screenshot({
+    path: info.outputPath('straight-vertical-arrow.png'),
+  });
+
+  await armArrow();
+  const horizontalStart = { x: canvas.x + 75.3, y: canvas.y + 310.5 };
+  await drag(page, horizontalStart, {
+    x: canvas.x + canvas.width - 40,
+    y: horizontalStart.y + 7,
+  });
+  await saved(page);
+  current = await read(page, board.id);
+  const horizontal = current.document.elements.find(
+    (element) => element.id !== vertical.id,
+  )!;
+  const across = annotationEndpoints(horizontal);
+  expect(across.start.y).toBe(across.end.y);
+  expect(across.end.x).toBeGreaterThan(across.start.x);
+
+  if (!mobile()) {
+    await armArrow();
+    await page.keyboard.down('Shift');
+    try {
+      await drag(
+        page,
+        { x: canvas.x + 300.3, y: canvas.y + 150.5 },
+        { x: canvas.x + 400, y: canvas.y + 650 },
+      );
+    } finally {
+      await page.keyboard.up('Shift');
+    }
+    await saved(page);
+    const forced = (await read(page, board.id)).document.elements.at(-1)!;
+    const aligned = annotationEndpoints(forced);
+    expect(aligned.start.x).toBe(aligned.end.x);
+  }
+  const beforeReload = (await read(page, board.id)).document;
+  await page.reload();
+  await saved(page);
+  expect((await read(page, board.id)).document).toEqual(beforeReload);
+  expect(
+    annotationEndpoints(
+      (await read(page, board.id)).document.elements.find(
+        (element) => element.id === vertical.id,
+      )!,
+    ),
+  ).toEqual(adjusted);
 });

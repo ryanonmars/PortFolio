@@ -152,6 +152,31 @@ export function annotationEndpoints(element: BoardElement): {
   };
 }
 
+/** Keep nearly horizontal/vertical arrows aligned to their stationary endpoint. */
+export function snapArrowEndpoint(
+  anchor: AnnotationPoint,
+  point: AnnotationPoint,
+  zoom: number,
+  options: { constrain?: boolean; bypass?: boolean } = {},
+): AnnotationPoint {
+  if (options.bypass) return point;
+  const dx = point.x - anchor.x;
+  const dy = point.y - anchor.y;
+  const vertical = Math.abs(dx) <= Math.abs(dy);
+  // A small screen-space tolerance also works for short arrows; the angle
+  // tolerance keeps long arrows straight without requiring pixel-perfect aim.
+  const tolerance = Math.max(
+    8 / zoom,
+    Math.hypot(dx, dy) * Math.sin(Math.PI / 60),
+  );
+  if (
+    options.constrain ||
+    (vertical ? Math.abs(dx) : Math.abs(dy)) <= tolerance
+  )
+    return vertical ? { x: anchor.x, y: point.y } : { x: point.x, y: anchor.y };
+  return point;
+}
+
 /** Endpoint coordinates stay device-independent; moving a box moves its arrow. */
 export function setArrowEndpoints(
   element: BoardElement,

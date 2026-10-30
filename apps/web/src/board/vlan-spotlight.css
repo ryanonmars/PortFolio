@@ -91,23 +91,10 @@
   padding: 2px 7px;
   font-size: 18px;
 }
-.vlan-spotlight-choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.vlan-spotlight-choices button {
+.vlan-spotlight-clear {
   min-height: 32px;
   padding: 5px 9px;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  text-align: left;
   font-size: 12px;
-}
-.vlan-spotlight-choices button[aria-pressed='true'] {
-  background: #34513e;
-  border-color: #789b83;
-  color: #f0f6f2;
 }
 .vlan-spotlight-panel form {
   margin: 8px 0 12px;
@@ -128,6 +115,9 @@
   min-height: 36px;
   box-sizing: border-box;
   font-size: 16px;
+}
+.vlan-spotlight-panel input:focus-visible {
+  outline: none;
 }
 .vlan-spotlight-panel form button {
   flex: none;

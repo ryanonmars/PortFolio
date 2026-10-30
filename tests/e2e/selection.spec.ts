@@ -177,11 +177,20 @@ async function marquee(
   if (shift) await page.keyboard.down('Shift');
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
   await page.mouse.move(end.x, end.y, { steps: 12 });
   await expect(page.locator('.board-marquee')).toBeVisible();
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
   await page.mouse.up();
   if (shift) await page.keyboard.up('Shift');
   await expect(page.locator('.board-marquee')).toHaveCount(0);
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
 }
 async function clickObject(
   page: Page,
@@ -383,8 +392,8 @@ test('marquee, modifiers, enclosure and cancellation keep mixed container select
   await clickObject(page, 'switch', 'Shift');
   expect(await selectedIds(page)).toEqual(['router', 'switch']);
   await expect(
-    page.getByText('2 objects selected', { exact: true }),
-  ).toBeVisible();
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
   // Native Control-click on macOS opens the OS context menu; Meta is the
   // native toggle gesture here. Dispatch a Control-click separately below.
   await clickObject(page, 'router', 'Meta');
@@ -405,6 +414,10 @@ test('marquee, modifiers, enclosure and cancellation keep mixed container select
   await page.keyboard.press('Escape');
   await marquee(page, { x: 60, y: 80 }, { x: 560, y: 340 });
   expect(await selectedIds(page)).toEqual(['router']);
+  await clickObject(page, 'router');
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toBeVisible();
   await marquee(page, { x: 420, y: 380 }, { x: 740, y: 600 }, true);
   expect(await selectedIds(page)).toEqual(['router', 'summary']);
   for (const [a, b] of [
@@ -442,6 +455,9 @@ test('marquee, modifiers, enclosure and cancellation keep mixed container select
     'summary',
     'switch',
   ]);
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('mixed-selection.png') });
   // Additive membership uses the initial selection, not earlier marquee frames.
   await page.keyboard.press('Escape');
@@ -487,6 +503,9 @@ test('group drag previews without writes, saves atomically and supports cancel, 
   });
   await page.keyboard.down('Alt');
   await startDrag(page, 'router', 51, 35);
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
   await expect(path).not.toHaveAttribute('d', oldPath!);
   await page.waitForTimeout(550);
   expect(writes).toHaveLength(0);
@@ -506,6 +525,9 @@ test('group drag previews without writes, saves atomically and supports cancel, 
   expect(moved.ports).toEqual(before.ports);
   expect(moved.cables).toEqual(before.cables);
   await expect(selected(page)).toHaveCount(4);
+  await expect(
+    page.getByRole('complementary', { name: 'Object inspector', exact: true }),
+  ).toHaveCount(0);
   await page.keyboard.down('Alt');
   await startDrag(page, 'switch', -25, 20);
   await page.keyboard.press('Escape');

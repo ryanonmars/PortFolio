@@ -1,18 +1,9 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { BoardDocument } from '../../../../packages/shared/src/board.js';
-import { discoverVlans, normalizeVlan } from './vlan-spotlight.js';
+import { normalizeVlan } from './vlan-spotlight.js';
 import './vlan-spotlight.css';
 
 interface Props {
-  document: BoardDocument;
   value: string | null;
   onChange: (vlan: string | null) => void;
   disabled?: boolean;
@@ -24,23 +15,13 @@ interface Position {
   maxHeight: number;
 }
 
-export function VlanSpotlight({
-  document: board,
-  value,
-  onChange,
-  disabled = false,
-}: Props) {
+export function VlanSpotlight({ value, onChange, disabled = false }: Props) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [position, setPosition] = useState<Position | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const firstChoice = useRef<HTMLButtonElement>(null);
   const panelId = useId();
-  const vlans = useMemo(
-    () => discoverVlans({ ports: board.ports, elements: board.elements }),
-    [board.ports, board.elements],
-  );
   const active = value !== null && normalizeVlan(value) !== '';
   const close = useCallback((restoreFocus = false) => {
     setOpen(false);
@@ -69,7 +50,6 @@ export function VlanSpotlight({
   }, []);
   useEffect(() => {
     if (!open || disabled) return;
-    const frame = requestAnimationFrame(() => firstChoice.current?.focus());
     const outside = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
@@ -90,7 +70,6 @@ export function VlanSpotlight({
     window.visualViewport?.addEventListener('resize', measure);
     window.visualViewport?.addEventListener('scroll', measure);
     return () => {
-      cancelAnimationFrame(frame);
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', keyboard, true);
       window.removeEventListener('resize', measure);
@@ -226,27 +205,13 @@ export function VlanSpotlight({
                 <button type="submit">Apply</button>
               </div>
             </form>
-            <div className="vlan-spotlight-choices">
-              <button
-                ref={firstChoice}
-                type="button"
-                aria-pressed={!active}
-                onClick={() => choose(null)}
-              >
-                All VLANs
-              </button>
-              {vlans.map((vlan) => (
-                <button
-                  key={vlan}
-                  type="button"
-                  title={`VLAN ${vlan}`}
-                  aria-pressed={active && normalizeVlan(value) === vlan}
-                  onClick={() => choose(vlan)}
-                >
-                  VLAN {vlan}
-                </button>
-              ))}
-            </div>
+            <button
+              className="vlan-spotlight-clear"
+              type="button"
+              onClick={() => choose(null)}
+            >
+              Clear Spotlight
+            </button>
           </div>,
           document.body,
         )}

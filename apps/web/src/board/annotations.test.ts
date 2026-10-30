@@ -8,6 +8,7 @@ import {
   isAnnotation,
   makeAnnotation,
   setArrowEndpoints,
+  snapArrowEndpoint,
 } from './annotations.js';
 import { BoardAnnotation } from './BoardAnnotation.js';
 import { AnnotationInspector } from './AnnotationInspector.js';
@@ -241,4 +242,93 @@ describe('annotation presentation and geometry', () => {
       }
     },
   );
+});
+
+describe('arrow axis alignment', () => {
+  it.each([
+    [
+      { x: 83.25, y: 91.5 },
+      { x: 86, y: 1292 },
+      { x: 83.25, y: 1292 },
+    ],
+    [
+      { x: 83.25, y: 91.5 },
+      { x: 72, y: -1100 },
+      { x: 83.25, y: -1100 },
+    ],
+    [
+      { x: -23.5, y: 12.25 },
+      { x: 1800, y: 50 },
+      { x: 1800, y: 12.25 },
+    ],
+    [
+      { x: -23.5, y: 12.25 },
+      { x: -1800, y: -20 },
+      { x: -1800, y: 12.25 },
+    ],
+  ])(
+    'aligns long arrows to the exact off-grid anchor %#',
+    (anchor, point, expected) => {
+      const before = structuredClone({ anchor, point });
+      const snapped = snapArrowEndpoint(anchor, point, 1);
+      expect(snapped).toEqual(expected);
+      const arrow = setArrowEndpoints(
+        makeAnnotation('arrow', 0, 0),
+        anchor,
+        snapped,
+      );
+      expect(annotationEndpoints(arrow)).toEqual({
+        start: anchor,
+        end: expected,
+      });
+      expect({ anchor, point }).toEqual(before);
+    },
+  );
+
+  it.each([0.1, 0.35, 1, 2, 4])(
+    'keeps the same screen-space tolerance at zoom %s',
+    (zoom) => {
+      const anchor = { x: 37.25, y: -18.5 };
+      expect(
+        snapArrowEndpoint(
+          anchor,
+          { x: anchor.x + 7 / zoom, y: anchor.y + 40 / zoom },
+          zoom,
+        ),
+      ).toEqual({ x: anchor.x, y: anchor.y + 40 / zoom });
+      const diagonal = { x: anchor.x + 12 / zoom, y: anchor.y + 40 / zoom };
+      expect(snapArrowEndpoint(anchor, diagonal, zoom)).toEqual(diagonal);
+    },
+  );
+
+  it('locks to the nearest axis with Shift and lets Alt preserve free angles', () => {
+    const anchor = { x: 13.5, y: 22.25 };
+    expect(
+      snapArrowEndpoint(anchor, { x: 100, y: 900 }, 1, { constrain: true }),
+    ).toEqual({ x: anchor.x, y: 900 });
+    expect(
+      snapArrowEndpoint(anchor, { x: -900, y: 100 }, 1, { constrain: true }),
+    ).toEqual({ x: -900, y: anchor.y });
+    const nearVertical = { x: 15, y: 900 };
+    expect(
+      snapArrowEndpoint(anchor, nearVertical, 1, { bypass: true }),
+    ).toEqual(nearVertical);
+    const diagonal = { x: 500, y: 600 };
+    expect(snapArrowEndpoint(anchor, diagonal, 1)).toEqual(diagonal);
+  });
+
+  it('realigns either moving endpoint without moving the stationary endpoint or changing styling', () => {
+    const original = makeAnnotation('arrow', 20, 40);
+    original.properties.strokeColor = '#ff6633';
+    original.properties.strokeWidth = 7;
+    const fixed = { x: 63.5, y: 1024.25 };
+    const moved = snapArrowEndpoint(fixed, { x: 68, y: 70 }, 1);
+    const arrow = setArrowEndpoints(original, moved, fixed);
+    expect(annotationEndpoints(arrow)).toEqual({
+      start: { x: fixed.x, y: 70 },
+      end: fixed,
+    });
+    expect(arrow.properties.strokeColor).toBe('#ff6633');
+    expect(arrow.properties.strokeWidth).toBe(7);
+  });
 });

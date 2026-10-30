@@ -90,12 +90,21 @@ async function choose(page: Page, vlan: string | null) {
     .getByRole('button', { name: 'VLAN Spotlight', exact: true })
     .click();
   await expect(panel(page)).toBeVisible();
-  await panel(page)
-    .getByRole('button', {
-      name: vlan === null ? 'All VLANs' : 'VLAN ' + vlan,
-      exact: true,
-    })
-    .click();
+  const field = panel(page).getByLabel('VLAN ID', { exact: true });
+  await expect(field).not.toBeFocused();
+  await field.focus();
+  await expect(field).toHaveCSS('outline-style', 'none');
+  await expect(panel(page).getByRole('button')).toHaveCount(3);
+  if (vlan === null)
+    await panel(page)
+      .getByRole('button', { name: 'Clear Spotlight', exact: true })
+      .click();
+  else {
+    await panel(page).getByLabel('VLAN ID', { exact: true }).fill(vlan);
+    await panel(page)
+      .getByRole('button', { name: 'Apply', exact: true })
+      .click();
+  }
   await expect(panel(page)).toHaveCount(0);
 }
 async function svg(page: Page) {
@@ -393,4 +402,79 @@ test('Spotlight accepts port-only and manual values, survives face switches and 
   ).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('.board-port[class*="spotlight-"]')).toHaveCount(0);
   expect((await read(page, board.id)).document).toEqual(edited.document);
+});
+
+test('ellipsis menus dismiss on outside pointer, switching menus and Escape without swallowing other controls', async ({
+  page,
+}) => {
+  const board = await setup(page, emptyBoardDocument());
+  const toolbar = page.locator('details.board-more');
+  const trigger = page.getByLabel('Board menu', { exact: true });
+  await trigger.click();
+  await expect(toolbar).toHaveAttribute('open', '');
+  const canvas = page.getByTestId('board-canvas');
+  const bounds = (await canvas.boundingBox())!;
+  const outside = { position: { x: bounds.width - 8, y: bounds.height - 8 } };
+  if (mobile()) await canvas.tap(outside);
+  else await canvas.click(outside);
+  await expect(toolbar).not.toHaveAttribute('open');
+  await trigger.click();
+  await page
+    .getByRole('button', { name: 'VLAN Spotlight', exact: true })
+    .click();
+  await expect(toolbar).not.toHaveAttribute('open');
+  await expect(panel(page)).toBeVisible();
+  await panel(page)
+    .getByRole('button', { name: 'Close VLAN Spotlight', exact: true })
+    .click();
+  await trigger.click();
+  await page.keyboard.press('Escape');
+  await expect(toolbar).not.toHaveAttribute('open');
+  await expect(trigger).toBeFocused();
+
+  const auth = await (await page.request.get('/api/v1/auth/session')).json();
+  const response = await page.request.post('/api/v1/boards', {
+    headers: {
+      Origin: new URL(page.url()).origin,
+      'x-csrf-token': auth.csrfToken,
+    },
+    data: {
+      name: 'Sibling menu ' + randomUUID().slice(0, 8),
+      document: emptyBoardDocument(),
+    },
+  });
+  expect(response.status()).toBe(201);
+  const sibling: BoardRecord = (await response.json()).board;
+  await page.reload();
+  await saved(page);
+  const opener = page.getByRole('button', {
+    name: 'Open board browser',
+    exact: true,
+  });
+  if ((await opener.getAttribute('aria-expanded')) !== 'true')
+    await opener.click();
+  // Open the lower row first so its downward menu does not cover the next trigger.
+  const first = page.getByLabel('Actions for board ' + sibling.name, {
+    exact: true,
+  });
+  const second = page.getByLabel('Actions for board ' + board.name, {
+    exact: true,
+  });
+  const firstMenu = first.locator('..');
+  const secondMenu = second.locator('..');
+  await first.click();
+  await expect(firstMenu).toHaveAttribute('open', '');
+  await second.click();
+  await expect(firstMenu).not.toHaveAttribute('open');
+  await expect(secondMenu).toHaveAttribute('open', '');
+  await page.getByLabel('Find board', { exact: true }).click();
+  await expect(secondMenu).not.toHaveAttribute('open');
+  await first.click();
+  await page.keyboard.press('Escape');
+  await expect(firstMenu).not.toHaveAttribute('open');
+  await expect(first).toBeFocused();
+  await expect(page.getByLabel('Find board', { exact: true })).toBeVisible();
+  const current = await read(page, board.id);
+  expect(current.document).toEqual(board.document);
+  expect(current.rowVersion).toBe(board.rowVersion);
 });
