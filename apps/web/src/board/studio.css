@@ -242,6 +242,9 @@
   font-size: 10px;
   color: #a3b9ab;
 }
+.board-cables-toggle svg {
+  display: none;
+}
 .board-save-status {
   color: #a4bcac;
   font-size: 10px;
@@ -565,6 +568,21 @@
     top: 8px;
     flex-wrap: wrap;
     gap: 1px;
+  }
+  .board-cables-toggle svg {
+    display: block;
+  }
+  .board-cables-toggle span {
+    display: none;
+  }
+  .board-save-status {
+    position: absolute;
+    right: 2px;
+    top: calc(100% + 3px);
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #17251d;
+    pointer-events: none;
   }
   .board-tool-divider {
     margin: 0;

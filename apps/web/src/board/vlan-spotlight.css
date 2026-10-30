@@ -1,0 +1,205 @@
+.vlan-spotlight {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+.board-toolbar .vlan-spotlight-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+}
+.vlan-spotlight-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: #e0eee4;
+  font-size: 11px;
+}
+.vlan-spotlight-active > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+.board-toolbar .vlan-spotlight-active button {
+  min-width: 28px;
+  padding: 3px 6px;
+  font-size: 16px;
+}
+.vlan-spotlight-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 10px;
+  color: #b4c6ba;
+}
+.vlan-spotlight-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.vlan-spotlight-legend i {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 13px;
+  height: 10px;
+  border: 1px solid #e2ece5;
+  border-radius: 3px;
+}
+.vlan-spotlight-legend .spotlight-key-tagged {
+  border-style: dashed;
+}
+.vlan-spotlight-legend .spotlight-key-both {
+  border-style: double;
+  border-width: 3px;
+}
+.vlan-spotlight-panel {
+  position: fixed;
+  z-index: 120;
+  box-sizing: border-box;
+  padding: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #40574a;
+  border-radius: 10px;
+  background: #15231b;
+  color: #e0e9e3;
+  box-shadow: 0 10px 30px #0006;
+}
+.vlan-spotlight-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.vlan-spotlight-panel h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.vlan-spotlight-panel header button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 2px 7px;
+  font-size: 18px;
+}
+.vlan-spotlight-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.vlan-spotlight-choices button {
+  min-height: 32px;
+  padding: 5px 9px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+  font-size: 12px;
+}
+.vlan-spotlight-choices button[aria-pressed='true'] {
+  background: #34513e;
+  border-color: #789b83;
+  color: #f0f6f2;
+}
+.vlan-spotlight-panel form {
+  margin: 8px 0 12px;
+}
+.vlan-spotlight-panel label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+  color: #b4c6ba;
+}
+.vlan-spotlight-panel form > div {
+  display: flex;
+  gap: 6px;
+}
+.vlan-spotlight-panel input {
+  min-width: 0;
+  width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+  font-size: 16px;
+}
+.vlan-spotlight-panel form button {
+  flex: none;
+  font-size: 12px;
+}
+.board-port.spotlight-native::after,
+.board-port.spotlight-tagged::after,
+.board-port.spotlight-both::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 1.5px solid #e3eee6;
+  border-radius: 8px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.board-port.spotlight-tagged::after {
+  border-style: dashed;
+}
+.board-port.spotlight-both::after {
+  border-style: double;
+  border-width: 3px;
+}
+.board-port.spotlight-muted {
+  opacity: 0.45;
+}
+.board-port.spotlight-muted:focus-within,
+.board-port.spotlight-muted:hover,
+.board-port.spotlight-muted[data-selected='true'] {
+  opacity: 0.75;
+}
+@media (pointer: coarse), (max-width: 760px) {
+  .board-toolbar .vlan-spotlight-trigger,
+  .board-toolbar .vlan-spotlight-active button,
+  .vlan-spotlight-panel button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .vlan-spotlight-panel input {
+    min-height: 44px;
+  }
+}
+
+.vlan-spotlight-status {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 5px 9px;
+  border: 1px solid #40574a;
+  border-radius: 7px;
+  background: #15231bf2;
+  pointer-events: none;
+}
+.vlan-spotlight-status button {
+  pointer-events: auto;
+}
+
+@media (max-width: 760px) {
+  .board-toolbar .vlan-spotlight-trigger {
+    position: relative;
+    min-height: 30px;
+  }
+  .vlan-spotlight-trigger::before {
+    content: '';
+    position: absolute;
+    inset: -7px 0;
+  }
+}

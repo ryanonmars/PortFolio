@@ -20,6 +20,8 @@ import {
   BoardViewport,
 } from '../../../../packages/shared/src/board.js';
 import { PortHoverTooltip } from './PortHoverTooltip.js';
+import { normalizeVlan, spotlightMembership } from './vlan-spotlight.js';
+import './vlan-spotlight.css';
 import { DeviceSummary } from './DeviceSummary.js';
 import { SummaryLinks } from './SummaryLinks.js';
 import { NetworkSummary } from './NetworkSummary.js';
@@ -74,6 +76,7 @@ export interface BoardCanvasProps {
   selection: BoardSelection | null;
   tool: BoardTool;
   onToolComplete?: () => void;
+  spotlight?: string | null;
   disabled: boolean;
   onChange: (document: BoardDocument, label: string) => void;
   onSelect: (selection: BoardSelection | null, inspect?: boolean) => void;
@@ -143,6 +146,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     onGestureChange,
     fitToken,
     onToolComplete,
+    spotlight = null,
     portMultiSelect = false,
     portMenuOpen = false,
     onPortContextMenu,
@@ -521,6 +525,19 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const physicalElements = useMemo(
     () => visible.elements.filter((item) => !isAnnotation(item)),
     [visible.elements],
+  );
+  const selectedVlan = normalizeVlan(spotlight);
+  const spotlightMatches = useMemo(
+    () =>
+      selectedVlan
+        ? new Map(
+            visible.ports.map((port) => [
+              port.id,
+              spotlightMembership(port, selectedVlan),
+            ]),
+          )
+        : null,
+    [visible.ports, selectedVlan],
   );
   const touchElement =
     touchControls && selection?.type === 'element'
@@ -1143,7 +1160,15 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 width: changed.width,
                 height: changed.height,
                 ...(active.type === 'endpoint'
-                  ? { properties: changed.properties }
+                  ? {
+                      properties: {
+                        ...item.properties,
+                        startX: changed.properties.startX!,
+                        startY: changed.properties.startY!,
+                        endX: changed.properties.endX!,
+                        endY: changed.properties.endY!,
+                      },
+                    }
                   : {}),
               }
             : item,
@@ -1520,6 +1545,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
         }
         if (
           event.key === 'Enter' &&
+          event.target === event.currentTarget &&
           !disabled &&
           (annotationKinds as readonly string[]).includes(tool)
         ) {
@@ -2057,7 +2083,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
                         (selection.ids ?? [selection.id]).includes(port.id);
                       return (
                         <div
-                          className="board-port"
+                          className={`board-port${spotlightMatches ? ` spotlight-${spotlightMatches.get(port.id) ?? 'muted'}` : ''}`}
+                          data-spotlight={
+                            spotlightMatches
+                              ? (spotlightMatches.get(port.id) ?? 'none')
+                              : undefined
+                          }
                           key={port.id}
                           data-board-port-id={port.id}
                           data-selected={selectedPort}

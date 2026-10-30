@@ -22,6 +22,7 @@ import {
 } from './BoardCanvas.js';
 import { BoardInspector } from './BoardInspector.js';
 import { MobileSheet } from './MobileSheet.js';
+import { VlanSpotlight } from './VlanSpotlight.js';
 import { useMobileLayout } from './use-mobile-layout.js';
 import { BoardSession } from './session.js';
 import { PortContextMenu } from './PortContextMenu.js';
@@ -139,6 +140,7 @@ export const BoardEditor = forwardRef<
     return () => cancelAnimationFrame(frame);
   }, [disabled]);
   const [tool, setTool] = useState<BoardTool>('select');
+  const [spotlight, setSpotlight] = useState<string | null>(null);
   const [dock, setDock] = useState(false);
   const [types, setTypes] = useState(false);
   const [fitToken, setFitToken] = useState(0);
@@ -666,14 +668,32 @@ export const BoardEditor = forwardRef<
           ＋
         </button>
         <button
+          className="board-cables-toggle"
+          title={document.showCables ? 'Hide cables' : 'Show cables'}
           aria-label={document.showCables ? 'Hide cables' : 'Show cables'}
           aria-pressed={document.showCables}
           onClick={() =>
             change({ ...document, showCables: !document.showCables }, 'Display')
           }
         >
-          Cables
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M7 3v4m-3 0h6v4a3 3 0 0 1-6 0V7Zm13 14v4m-3-8h6v4a3 3 0 0 1-6 0v-4ZM7 14v2a3 3 0 0 0 3 3h1a3 3 0 0 0 3-3v-2"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>Cables</span>
         </button>
+        <VlanSpotlight
+          document={document}
+          value={spotlight}
+          onChange={setSpotlight}
+          disabled={inactive}
+        />
         <details className="board-more">
           <summary aria-label="Board menu">•••</summary>
           <div>
@@ -908,6 +928,7 @@ export const BoardEditor = forwardRef<
       )}
       <BoardCanvas
         document={document}
+        spotlight={spotlight}
         selection={selection}
         tool={tool}
         disabled={inactive}

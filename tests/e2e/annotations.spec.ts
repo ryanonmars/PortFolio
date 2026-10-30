@@ -524,6 +524,8 @@ test('annotation layers, endpoints, resizing and mixed movement preserve equipme
     initial.document.elements.find((element) => element.id === 'arrow')!,
   );
   if (mobile()) await closeInspector(page);
+  else
+    await inspector(page).getByLabel('Line width', { exact: true }).fill('17');
   const endpointBox = (await page
     .getByRole('button', { name: 'Arrow end', exact: true })
     .boundingBox())!;
@@ -545,6 +547,11 @@ test('annotation layers, endpoints, resizing and mixed movement preserve equipme
   ).not.toEqual(
     initial.document.elements.find((element) => element.id === 'arrow'),
   );
+  if (!mobile())
+    expect(
+      current.document.elements.find((element) => element.id === 'arrow')!
+        .properties.strokeWidth,
+    ).toBe(16);
   const rectangle = current.document.elements.find(
     (element) => element.id === 'rectangle',
   )!;
@@ -714,4 +721,29 @@ test('keyboard placement, inline editing and cancelling a tool preserve a single
   await page.keyboard.press('Escape');
   await saved(page);
   expect((await read(page, board.id)).document).toEqual(before);
+});
+
+test('keyboard face controls do not place an armed annotation', async ({
+  page,
+}) => {
+  const board = await setup(page, fixture());
+  await page.getByRole('button', { name: 'Add object', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Equipment Dock', exact: true })
+    .getByRole('button', { name: 'Arrow', exact: true })
+    .click();
+  const rear = object(page, 'router').getByRole('button', {
+    name: 'Rear',
+    exact: true,
+  });
+  await rear.focus();
+  await page.keyboard.press('Enter');
+  await saved(page);
+  const current = (await read(page, board.id)).document;
+  expect(current.elements).toHaveLength(fixture().elements.length);
+  expect(
+    current.elements.find((element) => element.id === 'router')!.properties
+      .face,
+  ).toBe('rear');
+  await page.keyboard.press('Escape');
 });
