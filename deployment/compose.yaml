@@ -1,7 +1,7 @@
 name: portfolio
 services:
   portfolio:
-    image: ghcr.io/ryanonmars/portfolio:${IMAGE_TAG:-v0.1.1}
+    image: ghcr.io/ryanonmars/portfolio:${IMAGE_TAG:-v0.2.0}
     init: true
     user: '${PUID:-1000}:${PGID:-1000}'
     environment:
