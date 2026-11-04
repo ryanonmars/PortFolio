@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { makeAnnotation } from './annotations.js';
 import {
   boardDocumentSchema,
   emptyBoardDocument,
@@ -24,6 +25,32 @@ const device: BoardElement = {
 function example() {
   return { ...emptyBoardDocument(), elements: [structuredClone(device)] };
 }
+it('creates and duplicates board objects when HTTP LAN browsers lack randomUUID', () => {
+  const getRandomValues = crypto.getRandomValues.bind(crypto);
+  vi.stubGlobal('crypto', { getRandomValues });
+  try {
+    let document = addPorts(example(), device.id, 'rj45', 2, 'front');
+    for (const kind of ['text', 'rectangle', 'arrow', 'highlight'] as const)
+      document.elements.push(makeAnnotation(kind, 0, 0, 200, 100));
+    document = duplicateElement(document, device.id);
+    const ids = [...document.elements, ...document.ports].map(
+      (item) => item.id,
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids.filter((id) => id !== device.id))
+      expect(id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    expect(
+      document.ports
+        .slice(2)
+        .every((port) => port.deviceId === document.elements.at(-1)!.id),
+    ).toBe(true);
+    expect(boardDocumentSchema.safeParse(document).success).toBe(true);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 describe('board object commands', () => {
   it('builds an eleven-port mixed horizontal face ignoring inherited eight-column metadata', () => {
     let document = addPorts(example(), device.id, 'sfp_plus', 2, 'front');

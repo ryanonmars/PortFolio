@@ -36,7 +36,7 @@ The persistent directory and existing database, journal/WAL and backup files mus
 
 | Variable          | Default                       | Purpose                                                                                                      |
 | ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `IMAGE_TAG`       | `v0.2.0`                      | Published version; pin production deployments. `latest` follows stable releases.                             |
+| `IMAGE_TAG`       | `v0.2.1`                      | Published version; pin production deployments. `latest` follows stable releases.                             |
 | `PUID`            | `1000`                        | Non-root numeric runtime user ID; use `568` for the TrueNAS apps identity.                                   |
 | `PGID`            | `1000`                        | Non-root numeric runtime group ID; use `568` with TrueNAS apps.                                              |
 | `PORT`            | `3088`                        | Published host port; internal port remains 3088.                                                             |
@@ -66,8 +66,8 @@ Migrations run at startup. Keep the previous image tag and backup; rolling back 
 The published image supports Linux amd64 and arm64. Verify public pulls without cached Docker credentials:
 
 ```sh
-docker --config /path/to/empty-docker-config pull ghcr.io/ryanonmars/portfolio:v0.2.0
-docker buildx imagetools inspect ghcr.io/ryanonmars/portfolio:v0.2.0
+docker --config /path/to/empty-docker-config pull ghcr.io/ryanonmars/portfolio:v0.2.1
+docker buildx imagetools inspect ghcr.io/ryanonmars/portfolio:v0.2.1
 ```
 
 The source repository and container package are public. If package visibility needs setup, open the `portfolio` package under the GitHub account's Packages, choose Package settings, remove inherited repository access if required while retaining the repository under Manage Actions access, and change the package visibility to Public. Public visibility must be verified with an anonymous pull, not assumed from an authenticated one.

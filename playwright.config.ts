@@ -24,6 +24,18 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'http-lan-board',
+      testMatch: '**/http-lan.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 1000 },
+        baseURL: 'http://portfolio.test:3159',
+        launchOptions: {
+          args: ['--host-resolver-rules=MAP portfolio.test 127.0.0.1'],
+        },
+      },
+    },
+    {
       name: 'desktop-board',
       testMatch: '**/{board,network}.spec.ts',
       use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3089' },
@@ -286,7 +298,7 @@ export default defineConfig({
   webServer: [
     3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115, 3117, 3119,
     3121, 3123, 3125, 3127, 3129, 3131, 3133, 3135, 3137, 3139, 3141, 3143,
-    3145, 3147, 3149, 3151, 3153, 3155, 3157,
+    3145, 3147, 3149, 3151, 3153, 3155, 3157, 3159,
   ].map((port, index) => ({
     command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
     url: `http://127.0.0.1:${port}/healthz`,

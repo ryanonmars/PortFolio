@@ -1,3 +1,4 @@
+import { randomId } from '../../../../packages/shared/src/id.js';
 import type {
   BoardElement,
   JsonValue,
@@ -101,7 +102,7 @@ export function makeAnnotation(
   }[kind];
   const common = { textColor: '#dce8e0', fontSize: 24, align: 'left' };
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     type: kind,
     name: kind === 'text' ? 'Text' : '',
     x: bounded(x, 0, -100000, 100000),

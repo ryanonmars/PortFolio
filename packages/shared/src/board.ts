@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { randomId } from './id.js';
 
 export type JsonValue =
   string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -441,7 +442,7 @@ export function networkEntrySummary(
 export function remapBoardDocument(document: BoardDocument): BoardDocument {
   const ids = new Map(
     [...document.elements, ...document.ports, ...document.cables].map(
-      (item) => [item.id, crypto.randomUUID()],
+      (item) => [item.id, randomId()],
     ),
   );
   return boardDocumentSchema.parse({

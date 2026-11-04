@@ -1,7 +1,7 @@
 // IANA delegated root TLD snapshot; refresh from the source when releasing.
 // https://data.iana.org/TLD/tlds-alpha-by-domain.txt
-// Version 2026102900, Last Updated Thu Oct 29 07:07:01 2026 UTC
-// SHA-256: 7457ff18c19355e47aa65a49a24210bf2c33bb9bece630471e8f93e7e5802613
+// Version 2026110304, Last Updated Wed Nov  4 07:07:01 2026 UTC
+// SHA-256: f0ba6b170d8c26a682d964e784a0caf299c1f027b0916c55cc04d2f153b03dfd
 export const publicTlds = new Set(
   `aaa aarp abb abbott abbvie abc able abogado abudhabi ac academy accenture accountant accountants aco
 actor ad ads adult ae aeg aero aetna af afl africa ag agakhan agency ai aig airbus airforce airtel

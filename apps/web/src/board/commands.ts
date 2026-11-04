@@ -1,3 +1,4 @@
+import { randomId } from '../../../../packages/shared/src/id.js';
 import {
   emptyBoardDocument,
   minimumBoardDeviceSize,
@@ -57,7 +58,7 @@ export function makeBoardPort(
   face: BoardPort['face'] = 'front',
 ): BoardPort {
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     deviceId,
     kind,
     row,

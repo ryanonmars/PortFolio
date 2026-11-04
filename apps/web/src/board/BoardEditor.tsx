@@ -1,3 +1,4 @@
+import { randomId } from '../../../../packages/shared/src/id.js';
 import {
   forwardRef,
   useEffect,
@@ -430,7 +431,7 @@ export const BoardEditor = forwardRef<
         document.viewport.zoom -
       100;
     const element: BoardElement = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       type,
       name:
         type === 'summary'

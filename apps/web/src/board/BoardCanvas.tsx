@@ -1,3 +1,4 @@
+import { randomId } from '../../../../packages/shared/src/id.js';
 import {
   memo,
   useMemo,
@@ -1267,7 +1268,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       return;
     }
     const cable = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       sourcePortId: sourcePort,
       targetPortId: port.id,
       name: '',
