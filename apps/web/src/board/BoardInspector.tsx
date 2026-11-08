@@ -575,6 +575,36 @@ export function BoardInspector({
             )}
             {element.type === 'network' && (
               <>
+                <label>
+                  Display layout
+                  <select
+                    aria-label="Network display mode"
+                    value={
+                      element.properties.displayMode === 'detailed'
+                        ? 'detailed'
+                        : 'compact'
+                    }
+                    onChange={(event) =>
+                      property('displayMode', event.target.value)
+                    }
+                  >
+                    <option value="compact">Compact</option>
+                    <option value="detailed">Detailed</option>
+                  </select>
+                </label>
+                {element.properties.displayMode === 'detailed' && (
+                  <label className="board-display-field">
+                    <input
+                      type="checkbox"
+                      aria-label="Show network summary"
+                      checked={element.properties.showNetworkSummary !== false}
+                      onChange={(event) =>
+                        property('showNetworkSummary', event.target.checked)
+                      }
+                    />
+                    Show network summary
+                  </label>
+                )}
                 <details>
                   <summary>Visible fields</summary>
                   {[...networkDisplayFields, 'customFields'].map((field) => {

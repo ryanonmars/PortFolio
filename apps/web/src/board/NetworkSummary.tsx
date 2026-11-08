@@ -1,11 +1,14 @@
 import type { CSSProperties } from 'react';
 import type { BoardElement } from '../../../../packages/shared/src/board.js';
+import { DetailedNetworkSummary } from './DetailedNetworkSummary.js';
 import {
   networkDisplayValue,
   networkPresentation,
 } from './network-presentation.js';
 
 export function NetworkSummary({ element }: { element: BoardElement }) {
+  if (element.properties.displayMode === 'detailed')
+    return <DetailedNetworkSummary element={element} />;
   const entries = Array.isArray(element.properties.entries)
     ? element.properties.entries
     : [];
