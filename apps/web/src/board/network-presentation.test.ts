@@ -140,6 +140,20 @@ describe('Network information presentation', () => {
     ).toHaveLength(1);
   });
 
+  it('keeps explicitly cleared canonical values cleared while retaining legacy annotations', () => {
+    const legacy = { cidr: '192.0.2.0/24', dhcpStatus: 'Enabled' };
+    expect(show(['subnet', 'dhcpServer'], legacy)!.chips).toHaveLength(2);
+    const cleared = {
+      ...legacy,
+      subnet: '',
+      dhcpServer: null,
+      networkEntryVersion: 2,
+    };
+    expect(show(['subnet', 'dhcpServer'], cleared)).toBeNull();
+    expect(cleared.cidr).toBe(legacy.cidr);
+    expect(cleared.dhcpStatus).toBe(legacy.dhcpStatus);
+  });
+
   it('renders enabled typed custom data including false/zero and skips empty fields', () => {
     const value = {
       ...entry,

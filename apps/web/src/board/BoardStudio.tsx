@@ -14,12 +14,20 @@ import {
 import {
   boardImportSchema,
   type BoardGroup,
+  type BoardDocument,
   type BoardRecord,
   type BoardSummary,
 } from '../../../../packages/shared/src/board.js';
 import { api, ApiError, sessionRequest } from '../api.js';
 import { AuthForm } from '../forms.js';
 import { BoardEditor, type BoardEditorHandle } from './BoardEditor.js';
+import { BoardObjectTree } from './BoardObjectTree.js';
+import {
+  boardPagePath,
+  resolveBoardLocation,
+  type BoardPage,
+} from './detail-model.js';
+import './detail-navigation.css';
 import type { PortClipboard } from './port-clipboard.js';
 import { useMobileLayout, useVisualViewport } from './use-mobile-layout.js';
 import { useDismissibleMenus } from './use-dismissible-menus.js';
@@ -53,6 +61,38 @@ export function BoardStudio() {
   const [groups, setGroups] = useState<BoardGroup[]>([]);
   const [active, setActive] = useState<BoardRecord | null>(null);
   const [epoch, setEpoch] = useState(0);
+  const [page, setPage] = useState<BoardPage>(
+    () =>
+      resolveBoardLocation(window.location.pathname, window.location.search)
+        ?.page ?? { kind: 'canvas' },
+  );
+  const pageRef = useRef(page);
+  const [expandedBoards, setExpandedBoards] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [navigationDocs, setNavigationDocs] = useState<
+    Record<string, BoardDocument>
+  >({});
+  const [navigationLoading, setNavigationLoading] = useState<
+    Record<string, boolean>
+  >({});
+  const [navigationErrors, setNavigationErrors] = useState<
+    Record<string, string>
+  >({});
+  const navigationEpoch = useRef(0);
+  const navigationRequests = useRef<Record<string, number>>({});
+  function selectPage(next: BoardPage) {
+    pageRef.current = next;
+    setPage(next);
+  }
+  function clearNavigation() {
+    navigationEpoch.current++;
+    setExpandedBoards({});
+    setNavigationDocs({});
+    setNavigationLoading({});
+    setNavigationErrors({});
+  }
+
   const [collapsed, setCollapsed] = useState(
     () => window.matchMedia('(max-width: 760px), (pointer: coarse)').matches,
   );
@@ -124,6 +164,55 @@ export function BoardStudio() {
   }, [mobile, collapsed, closeBrowser]);
   const activeRef = useRef<BoardRecord | null>(null);
   const request = useRef(0);
+  const documentChanged = useCallback(
+    (id: string, document: BoardDocument, rowVersion: number) => {
+      if (activeRef.current?.id !== id) return;
+      activeRef.current = { ...activeRef.current, document, rowVersion };
+      setActive((current) =>
+        current?.id === id &&
+        (current.document !== document || current.rowVersion !== rowVersion)
+          ? { ...current, document, rowVersion }
+          : current,
+      );
+    },
+    [],
+  );
+  async function toggleBoard(id: string) {
+    const expanded = !expandedBoards[id];
+    setExpandedBoards((current) => ({ ...current, [id]: expanded }));
+    if (!expanded || activeRef.current?.id === id) return;
+    const generation = navigationEpoch.current;
+    const sequence = (navigationRequests.current[id] ?? 0) + 1;
+    navigationRequests.current[id] = sequence;
+    const valid = () =>
+      generation === navigationEpoch.current &&
+      sequence === navigationRequests.current[id];
+    setNavigationLoading((current) => ({ ...current, [id]: true }));
+    setNavigationErrors((current) => ({ ...current, [id]: '' }));
+    try {
+      const result = await api<{ board: BoardRecord }>(
+        `/boards/${encodeURIComponent(id)}`,
+      );
+      if (valid() && authUser.current)
+        setNavigationDocs((current) => ({
+          ...current,
+          [id]: result.board.document,
+        }));
+    } catch (cause) {
+      if (valid() && authUser.current)
+        setNavigationErrors((current) => ({
+          ...current,
+          [id]:
+            cause instanceof Error
+              ? cause.message
+              : 'Unable to load board objects',
+        }));
+    } finally {
+      if (valid())
+        setNavigationLoading((current) => ({ ...current, [id]: false }));
+    }
+  }
+
   function updatePortClipboard(value: PortClipboard | null) {
     if (!value || authUser.current) setPortClipboard(value);
   }
@@ -172,18 +261,52 @@ export function BoardStudio() {
     setGroups(result.groups);
     return result;
   }
-  function activate(board: BoardRecord, token: number, push = true) {
+  function activate(
+    board: BoardRecord,
+    token: number,
+    push = true,
+    nextPage?: BoardPage,
+  ) {
     if (!current(token)) return;
+    const previous = activeRef.current;
+    if (previous && previous.id !== board.id)
+      setNavigationDocs((documents) => ({
+        ...documents,
+        [previous.id]: previous.document,
+      }));
+    navigationRequests.current[board.id] =
+      (navigationRequests.current[board.id] ?? 0) + 1;
+    setNavigationLoading((loading) => ({ ...loading, [board.id]: false }));
+    setNavigationErrors((errors) => ({ ...errors, [board.id]: '' }));
+    const destination =
+      nextPage ??
+      (activeRef.current?.id === board.id
+        ? pageRef.current
+        : ({ kind: 'canvas' } as BoardPage));
+    selectPage(destination);
     activeRef.current = board;
     setActive(board);
     setEpoch((value) => value + 1);
     setCollapsed(mobile);
-    if (push) window.history.pushState(null, '', `/boards/${board.id}`);
-    else window.history.replaceState(null, '', `/boards/${board.id}`);
+    if (push)
+      window.history.pushState(null, '', boardPagePath(board.id, destination));
+    else
+      window.history.replaceState(
+        null,
+        '',
+        boardPagePath(board.id, destination),
+      );
   }
-  async function load(id: string, token: number, push = true) {
-    const result = await api<{ board: BoardRecord }>(`/boards/${id}`);
-    if (current(token)) activate(result.board, token, push);
+  async function load(
+    id: string,
+    token: number,
+    push = true,
+    nextPage?: BoardPage,
+  ) {
+    const result = await api<{ board: BoardRecord }>(
+      `/boards/${encodeURIComponent(id)}`,
+    );
+    if (current(token)) activate(result.board, token, push, nextPage);
   }
   async function run(
     work: (token: number) => Promise<void>,
@@ -211,16 +334,32 @@ export function BoardStudio() {
       end(token);
     }
   }
-  async function open(id: string, push = true) {
-    const accepted = await run(
-      (token) => load(id, token, push),
-      'Unable to open board',
-    );
+  async function open(
+    id: string,
+    push = true,
+    nextPage: BoardPage = { kind: 'canvas' },
+  ) {
+    const accepted = await run(async (token) => {
+      if (activeRef.current?.id === id) {
+        editor.current?.dismissOverlays();
+        selectPage(nextPage);
+        setCollapsed(mobile);
+        window.history[push ? 'pushState' : 'replaceState'](
+          null,
+          '',
+          boardPagePath(id, nextPage),
+        );
+      } else await load(id, token, push, nextPage);
+    }, 'Unable to open board');
     if (!accepted && !push && alive.current && activeRef.current)
-      window.history.replaceState(null, '', `/boards/${activeRef.current.id}`);
+      window.history.replaceState(
+        null,
+        '',
+        boardPagePath(activeRef.current.id, pageRef.current),
+      );
   }
-  const historyOpen = useEffectEvent((id: string) => {
-    void open(id, false);
+  const historyOpen = useEffectEvent((id: string, nextPage: BoardPage) => {
+    void open(id, false, nextPage);
   });
   const disposeStudio = useEffectEvent(() => {
     alive.current = false;
@@ -255,16 +394,36 @@ export function BoardStudio() {
         if (!valid()) return;
         setBoards(result.boards);
         setGroups(result.groups);
-        const route = window.location.pathname.match(
-          /^\/(?:boards|sites)\/([^/]+)/,
-        )?.[1];
-        const target = route ?? result.boards[0]?.id;
+        const route = resolveBoardLocation(
+          window.location.pathname,
+          window.location.search,
+        );
+        const legacy = window.location.pathname.match(/^\/sites\/([^/]+)/)?.[1];
+        if (!route && /^\/boards(?:\/|$)/.test(window.location.pathname)) {
+          setError(
+            'This board address is unavailable. Choose a board from the sidebar.',
+          );
+          return;
+        }
+        const target = route?.boardId ?? legacy ?? result.boards[0]?.id;
         if (target) {
-          const loaded = await api<{ board: BoardRecord }>(`/boards/${target}`);
+          const loaded = await api<{ board: BoardRecord }>(
+            `/boards/${encodeURIComponent(target)}`,
+          );
           if (valid()) {
             activeRef.current = loaded.board;
             setActive(loaded.board);
-            window.history.replaceState(null, '', `/boards/${target}`);
+            const destination =
+              resolveBoardLocation(
+                window.location.pathname,
+                window.location.search,
+              )?.page ?? ({ kind: 'canvas' } as BoardPage);
+            selectPage(destination);
+            window.history.replaceState(
+              null,
+              '',
+              boardPagePath(target, destination),
+            );
           }
         }
       })
@@ -285,6 +444,7 @@ export function BoardStudio() {
       editor.current?.setLocked(true);
       authUser.current = null;
       setPortClipboard(null);
+      clearNavigation();
       setUser(null);
       setBusy(false);
       setLoading(false);
@@ -296,8 +456,11 @@ export function BoardStudio() {
       );
     };
     const history = () => {
-      const id = window.location.pathname.match(/^\/boards\/([^/]+)/)?.[1];
-      if (id && activeRef.current?.id !== id) historyOpen(id);
+      const route = resolveBoardLocation(
+        window.location.pathname,
+        window.location.search,
+      );
+      if (route) historyOpen(route.boardId, route.page);
     };
     window.addEventListener('portfolio:unauthorized', unauthorized);
     window.addEventListener('popstate', history);
@@ -329,12 +492,31 @@ export function BoardStudio() {
       const data = await index(token);
       if (!current(token) || !data) return;
       if (!activeRef.current) {
-        const requested = window.location.pathname.match(
-          /^\/(?:boards|sites)\/([^/]+)/,
-        )?.[1];
+        const destination = resolveBoardLocation(
+          window.location.pathname,
+          window.location.search,
+        );
+        if (
+          !destination &&
+          /^\/boards(?:\/|$)/.test(window.location.pathname)
+        ) {
+          setError(
+            'This board address is unavailable. Choose a board from the sidebar.',
+          );
+          return;
+        }
+        const requested =
+          destination?.boardId ??
+          window.location.pathname.match(/^\/sites\/([^/]+)/)?.[1];
         const target =
           data.boards.find((board) => board.id === requested) ?? data.boards[0];
-        if (target) await load(target.id, token);
+        if (requested && target?.id !== requested) {
+          setError(
+            'This board is unavailable. Choose a board from the sidebar.',
+          );
+          return;
+        }
+        if (target) await load(target.id, token, true, destination?.page);
       }
     } finally {
       end(token);
@@ -348,6 +530,8 @@ export function BoardStudio() {
       setActive(null);
       setBoards([]);
       setGroups([]);
+      clearNavigation();
+      selectPage({ kind: 'canvas' });
       authUser.current = null;
       setPortClipboard(null);
       setUser(null);
@@ -559,82 +743,127 @@ export function BoardStudio() {
   }
   function boardRow(board: BoardSummary) {
     return (
-      <div
-        key={board.id}
-        className="board-browser-row"
-        draggable={!busy}
-        onDragStart={() => {
-          dragged.current = board.id;
-        }}
-        onDragEnd={() => {
-          dragged.current = null;
-        }}
-        onDragOver={(event) => {
-          if (dragged.current) event.preventDefault();
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          void reorder(board.id);
-        }}
-      >
-        <button
-          className="board-browser-name"
-          aria-current={active?.id === board.id ? 'page' : undefined}
-          onClick={() => void open(board.id)}
-          onDoubleClick={() =>
-            showNameDialog({ type: 'board', id: board.id, name: board.name })
-          }
-        >
-          {board.name}
-        </button>
-        <details
-          className="board-browser-actions"
-          onClick={(event) => {
-            if (
-              event.target instanceof Element &&
-              event.target.closest('button')
-            )
-              event.currentTarget.removeAttribute('open');
+      <div key={board.id} className="board-browser-item">
+        <div
+          className="board-browser-row"
+          data-active-board={active?.id === board.id}
+          draggable={!busy}
+          onDragStart={() => {
+            dragged.current = board.id;
+          }}
+          onDragEnd={() => {
+            dragged.current = null;
+          }}
+          onDragOver={(event) => {
+            if (dragged.current) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            void reorder(board.id);
           }}
         >
-          <summary aria-label={`Actions for board ${board.name}`}>•••</summary>
-          <div>
-            <button
-              onClick={() =>
-                showNameDialog({
-                  type: 'board',
-                  id: board.id,
-                  name: board.name,
-                })
-              }
-            >
-              Rename board
-            </button>
-            <button onClick={() => void duplicate(board)}>
-              Duplicate board
-            </button>
-            <label>
-              Group
-              <select
-                aria-label={`Group for ${board.name}`}
-                value={board.groupId ?? ''}
-                onChange={(event) =>
-                  void moveGroup(board, event.target.value || null)
+          <button
+            className="board-browser-disclosure"
+            aria-label={`${expandedBoards[board.id] ? 'Collapse' : 'Expand'} board ${board.name}`}
+            aria-expanded={Boolean(expandedBoards[board.id])}
+            onClick={() => void toggleBoard(board.id)}
+          >
+            {' '}
+            {expandedBoards[board.id] ? '⌄' : '›'}{' '}
+          </button>
+          <button
+            title={board.name}
+            className="board-browser-name"
+            aria-current={
+              active?.id === board.id && page.kind === 'canvas'
+                ? 'page'
+                : undefined
+            }
+            onClick={() => void open(board.id)}
+            onDoubleClick={() =>
+              showNameDialog({ type: 'board', id: board.id, name: board.name })
+            }
+          >
+            {board.name}
+          </button>
+          <details
+            className="board-browser-actions"
+            onClick={(event) => {
+              if (
+                event.target instanceof Element &&
+                event.target.closest('button')
+              )
+                event.currentTarget.removeAttribute('open');
+            }}
+          >
+            <summary aria-label={`Actions for board ${board.name}`}>
+              •••
+            </summary>
+            <div>
+              <button
+                onClick={() =>
+                  showNameDialog({
+                    type: 'board',
+                    id: board.id,
+                    name: board.name,
+                  })
                 }
               >
-                <option value="">No group</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="danger" onClick={() => void deleteBoard(board)}>
-              Delete board
-            </button>
+                Rename board
+              </button>
+              <button onClick={() => void duplicate(board)}>
+                Duplicate board
+              </button>
+              <label>
+                Group
+                <select
+                  aria-label={`Group for ${board.name}`}
+                  value={board.groupId ?? ''}
+                  onChange={(event) =>
+                    void moveGroup(board, event.target.value || null)
+                  }
+                >
+                  <option value="">No group</option>
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="danger"
+                onClick={() => void deleteBoard(board)}
+              >
+                Delete board
+              </button>
+            </div>
+          </details>
+        </div>
+        {expandedBoards[board.id] && (
+          <div className="board-object-navigation">
+            {navigationLoading[board.id] && active?.id !== board.id ? (
+              <p role="status">Loading objects…</p>
+            ) : navigationErrors[board.id] && active?.id !== board.id ? (
+              <p role="alert">{navigationErrors[board.id]}</p>
+            ) : (
+                active?.id === board.id
+                  ? active.document
+                  : navigationDocs[board.id]
+              ) ? (
+              <BoardObjectTree
+                document={
+                  (active?.id === board.id
+                    ? active.document
+                    : navigationDocs[board.id])!
+                }
+                page={active?.id === board.id ? page : { kind: 'canvas' }}
+                disabled={busy}
+                onNavigate={(next) => void open(board.id, true, next)}
+              />
+            ) : null}
           </div>
-        </details>
+        )}
       </div>
     );
   }
@@ -790,7 +1019,14 @@ export function BoardStudio() {
             {active && (
               <button
                 className="board-title"
-                aria-label="Rename current board"
+                aria-label={
+                  page.kind === 'canvas'
+                    ? 'Rename current board'
+                    : 'View visual board'
+                }
+                onClick={() => {
+                  if (page.kind !== 'canvas') void open(active.id);
+                }}
                 onDoubleClick={() =>
                   showNameDialog({
                     type: 'board',
@@ -825,6 +1061,9 @@ export function BoardStudio() {
               key={`${active.id}:${epoch}`}
               ref={editor}
               board={active}
+              page={page}
+              onNavigate={(next) => void open(active.id, true, next)}
+              onDocumentChange={documentChanged}
               disabled={
                 busy ||
                 !user ||

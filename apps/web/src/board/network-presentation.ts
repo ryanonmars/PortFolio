@@ -70,7 +70,9 @@ export function networkPresentation(
           ? normalized.dhcpServer
             ? 'Enabled'
             : 'Disabled'
-          : value('dhcpStatus'),
+          : normalized.dhcpServer === null
+            ? ''
+            : value('dhcpStatus'),
       );
     } else if ((field === 'dhcpStart' || field === 'dhcpEnd') && range) {
       add(
@@ -93,7 +95,9 @@ export function networkPresentation(
       add(
         field,
         label,
-        field === 'subnet' ? value('subnet') || value('cidr') : value(field),
+        field === 'subnet'
+          ? value(Object.hasOwn(entry, 'subnet') ? 'subnet' : 'cidr')
+          : value(field),
       );
     }
   }

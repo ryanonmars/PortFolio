@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
   boardDocumentSchema,
+  normalizeNetworkDocument,
   minimumBoardDeviceSize,
   type BoardDocument,
   type BoardElement,
@@ -16,6 +17,8 @@ import {
   type BoardPort,
 } from '../../../../packages/shared/src/board.js';
 import { api } from '../api.js';
+import { BoardDetailPages } from './BoardDetailPages.js';
+import type { BoardPage } from './detail-model.js';
 import {
   BoardCanvas,
   type BoardSelection,
@@ -50,6 +53,13 @@ export const BoardEditor = forwardRef<
   BoardEditorHandle,
   {
     board: BoardRecord;
+    page?: BoardPage;
+    onNavigate?: (page: BoardPage) => void;
+    onDocumentChange?: (
+      id: string,
+      document: BoardDocument,
+      rowVersion: number,
+    ) => void;
     onImport: () => void;
     onExport: () => void;
     disabled?: boolean;
@@ -57,7 +67,17 @@ export const BoardEditor = forwardRef<
     onClipboardChange: (clipboard: PortClipboard | null) => void;
   }
 >(function BoardEditor(
-  { board, onImport, onExport, disabled = false, clipboard, onClipboardChange },
+  {
+    board,
+    page = { kind: 'canvas' },
+    onNavigate,
+    onDocumentChange,
+    onImport,
+    onExport,
+    disabled = false,
+    clipboard,
+    onClipboardChange,
+  },
   ref,
 ) {
   const [, redraw] = useState(0);
@@ -87,7 +107,7 @@ export const BoardEditor = forwardRef<
     () =>
       new BoardSession(
         board.id,
-        board,
+        { ...board, document: normalizeNetworkDocument(board.document) },
         async (id, document, rowVersion) =>
           (
             await api<{ board: BoardRecord }>(`/boards/${id}`, 'PATCH', {
@@ -155,6 +175,49 @@ export const BoardEditor = forwardRef<
   const surface = useRef<HTMLDivElement>(null);
   useDismissibleMenus(surface);
   const document = session.document;
+  const publishDocument = useEffectEvent(() =>
+    onDocumentChange?.(board.id, session.document, session.rowVersion),
+  );
+  useEffect(() => {
+    publishDocument();
+  }, [document, session.rowVersion]);
+  const focusId = page.kind === 'canvas' ? page.focusId : undefined;
+  const focusBoardObject = useEffectEvent((id: string) => {
+    const element = session.document.elements.find((item) => item.id === id);
+    const canvas = surface.current?.querySelector<HTMLElement>('.board-canvas');
+    if (!element || !canvas) return;
+    selectObject({ type: 'element', id }, false);
+    const zoom = session.document.viewport.zoom;
+    change(
+      {
+        ...session.document,
+        viewport: {
+          zoom,
+          x: Math.max(
+            -100000,
+            Math.min(
+              100000,
+              canvas.clientWidth / 2 - (element.x + element.width / 2) * zoom,
+            ),
+          ),
+          y: Math.max(
+            -100000,
+            Math.min(
+              100000,
+              canvas.clientHeight / 2 - (element.y + element.height / 2) * zoom,
+            ),
+          ),
+        },
+      },
+      'Viewport',
+    );
+    canvas.focus({ preventScroll: true });
+  });
+  useEffect(() => {
+    if (!focusId) return;
+    const frame = requestAnimationFrame(() => focusBoardObject(focusId));
+    return () => cancelAnimationFrame(frame);
+  }, [focusId]);
   useImperativeHandle(
     ref,
     () => ({
@@ -209,7 +272,9 @@ export const BoardEditor = forwardRef<
   function change(next: BoardDocument, label: string): boolean {
     if (blocked()) return false;
     try {
-      const result = boardDocumentSchema.safeParse(next);
+      const result = boardDocumentSchema.safeParse(
+        normalizeNetworkDocument(next),
+      );
       if (!result.success)
         throw new Error(
           result.error.issues[0]?.message ?? 'Unable to apply change',
@@ -376,6 +441,14 @@ export const BoardEditor = forwardRef<
       )
         return;
       if (
+        page.kind !== 'canvas' &&
+        !(
+          (event.metaKey || event.ctrlKey) &&
+          ['z', 'y'].includes(event.key.toLowerCase())
+        )
+      )
+        return;
+      if (
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
         ['c', 'v'].includes(event.key.toLowerCase())
@@ -492,7 +565,10 @@ export const BoardEditor = forwardRef<
         externalLock.current
       )
         return;
-      session.replace(result.board);
+      session.replace({
+        ...result.board,
+        document: normalizeNetworkDocument(result.board.document),
+      });
       selectObject(null);
       setError('');
     } catch (cause) {
@@ -508,6 +584,31 @@ export const BoardEditor = forwardRef<
         }
       }
     }
+  }
+  function downloadDraft() {
+    if (blocked()) return;
+    const url = URL.createObjectURL(
+      new Blob(
+        [
+          JSON.stringify(
+            {
+              format: 'portfolio-board',
+              schemaVersion: 1,
+              name: board.name + ' recovered draft',
+              document,
+            },
+            null,
+            2,
+          ),
+        ],
+        { type: 'application/json' },
+      ),
+    );
+    const anchor = window.document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'portfolio-unsaved-draft.json';
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function closeInspector(restoreFocus = false) {
     if (mobile) {
@@ -550,6 +651,75 @@ export const BoardEditor = forwardRef<
       />
     );
   const inactive = disabled || locked || reloading;
+  if (page.kind !== 'canvas')
+    return (
+      <section
+        className="board-editor board-detail-editor"
+        aria-label="Board editor"
+        ref={surface}
+        inert={inactive}
+      >
+        <div
+          className="board-detail-actions"
+          role="toolbar"
+          aria-label="Documentation history"
+        >
+          <button
+            aria-label="Undo"
+            disabled={inactive || !session.canUndo}
+            onClick={() => runHistory('undo')}
+          >
+            ↶ Undo
+          </button>
+          <button
+            aria-label="Redo"
+            disabled={inactive || !session.canRedo}
+            onClick={() => runHistory('redo')}
+          >
+            ↷ Redo
+          </button>
+          <span className="board-save-status" role="status">
+            {session.state === 'saved'
+              ? 'Saved'
+              : session.state === 'saving'
+                ? 'Saving…'
+                : session.state === 'error'
+                  ? 'Save failed'
+                  : 'Unsaved'}
+          </span>
+          {session.state === 'error' && (
+            <>
+              <span role="alert">{session.error}</span>
+              <button
+                disabled={inactive}
+                onClick={() => {
+                  if (!blocked()) void session.retry().catch(() => {});
+                }}
+              >
+                Retry save
+              </button>
+              <button
+                disabled={inactive || session.saving}
+                onClick={() => void reload()}
+              >
+                Load saved board
+              </button>
+              <button disabled={inactive} onClick={downloadDraft}>
+                Download draft
+              </button>
+            </>
+          )}
+        </div>
+        {error && <p role="alert">{error}</p>}
+        <BoardDetailPages
+          document={document}
+          boardName={board.name}
+          page={page}
+          onNavigate={onNavigate ?? (() => {})}
+          onChange={change}
+        />
+      </section>
+    );
   return (
     <section
       className="board-editor"
@@ -762,33 +932,7 @@ export const BoardEditor = forwardRef<
               >
                 Load saved board
               </button>
-              <button
-                disabled={inactive}
-                onClick={() => {
-                  const url = URL.createObjectURL(
-                    new Blob(
-                      [
-                        JSON.stringify(
-                          {
-                            format: 'portfolio-board',
-                            schemaVersion: 1,
-                            name: board.name + ' recovered draft',
-                            document,
-                          },
-                          null,
-                          2,
-                        ),
-                      ],
-                      { type: 'application/json' },
-                    ),
-                  );
-                  const anchor = window.document.createElement('a');
-                  anchor.href = url;
-                  anchor.download = 'portfolio-unsaved-draft.json';
-                  anchor.click();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                }}
-              >
+              <button disabled={inactive} onClick={downloadDraft}>
                 Download draft
               </button>
             </>

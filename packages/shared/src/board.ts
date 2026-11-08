@@ -371,28 +371,70 @@ export function normalizeNetworkEntry(
   return next;
 }
 
+/** Assign identity when authoring; deterministic normalization is for legacy reads. */
+export function createNetworkEntry(): Record<string, JsonValue> {
+  return { networkEntryId: randomId() };
+}
+
 /** Read old documents without writing, changing versions, or dropping unknown data. */
 export function normalizeNetworkDocument(
   document: BoardDocument,
 ): BoardDocument {
   return {
     ...document,
-    elements: document.elements.map((element) =>
-      element.type === 'network' && Array.isArray(element.properties.entries)
-        ? {
-            ...element,
-            properties: {
-              ...element.properties,
-              entries: element.properties.entries.map((entry) =>
-                entry && typeof entry === 'object' && !Array.isArray(entry)
-                  ? normalizeNetworkEntry(entry)
-                  : entry,
-              ),
-            },
-          }
-        : element,
-    ),
+    elements: document.elements.map((element) => {
+      if (
+        element.type !== 'network' ||
+        !Array.isArray(element.properties.entries)
+      )
+        return element;
+      const reserved = new Set<string>();
+      // Reserve all saved IDs before assigning missing ones after insertion.
+      for (const entry of element.properties.entries)
+        if (
+          entry &&
+          typeof entry === 'object' &&
+          !Array.isArray(entry) &&
+          Object.hasOwn(entry, 'networkEntryId') &&
+          validNetworkEntryId(entry.networkEntryId)
+        )
+          reserved.add(entry.networkEntryId);
+      const used = new Set<string>();
+      // Deterministic compatibility identity; no random IDs or writes on reads.
+      let hash = 2166136261;
+      for (let i = 0; i < element.id.length; i++)
+        hash = Math.imul(hash ^ element.id.charCodeAt(i), 16777619);
+      const prefix = `entry-${(hash >>> 0).toString(36)}`;
+      return {
+        ...element,
+        properties: {
+          ...element.properties,
+          entries: element.properties.entries.map((entry, index) => {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+              return entry;
+            let identity = Object.hasOwn(entry, 'networkEntryId')
+              ? entry.networkEntryId
+              : undefined;
+            if (!validNetworkEntryId(identity) || used.has(identity)) {
+              const base = `${prefix}-${index}`;
+              identity = base;
+              let suffix = 1;
+              while (reserved.has(identity) || used.has(identity))
+                identity = `${base}-${suffix++}`;
+            }
+            used.add(identity);
+            return {
+              ...normalizeNetworkEntry(entry),
+              networkEntryId: identity,
+            };
+          }),
+        },
+      };
+    }),
   };
+}
+function validNetworkEntryId(value: JsonValue | undefined): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 100;
 }
 export const networkDisplayFields = [
   'vlanId',

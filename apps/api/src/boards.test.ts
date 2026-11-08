@@ -286,6 +286,12 @@ describe('board-centric persistence API', () => {
       mystery: 'preserved',
     });
     expect(entries[1]).not.toHaveProperty('dhcpServer');
+    expect(typeof entries[0]!.networkEntryId).toBe('string');
+    expect(entries[0]!.networkEntryId).not.toBe(entries[1]!.networkEntryId);
+    const repeated = await get();
+    expect(repeated).toEqual(migrated);
+    await client.restart();
+    expect(await get()).toEqual(migrated);
     entries[0]!.dhcpServer = false;
     entries[0]!.vlanName = '';
     const saved = await client.request(

@@ -1,0 +1,52 @@
+.board-browser .board-browser-row {
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+}
+.board-browser-disclosure {
+  padding: 0;
+  width: 24px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: #9cb6a7;
+}
+.board-browser-row[data-active-board='true'] .board-browser-name {
+  color: #e7f2eb;
+}
+.board-object-navigation {
+  padding: 0 0 6px 16px;
+  min-width: 0;
+}
+.board-object-navigation > p {
+  color: #9cb6a7;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+.board-editor.board-detail-editor {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.board-detail-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px 24px 0;
+  color: #a5bdad;
+}
+.board-detail-actions button {
+  font-size: 12px;
+  padding: 5px 9px;
+}
+.board-detail-actions .board-save-status {
+  position: static;
+  margin-left: auto;
+}
+@media (max-width: 760px) {
+  .board-browser-disclosure {
+    min-height: 44px;
+  }
+  .board-detail-actions {
+    padding: 10px 16px 0;
+  }
+}

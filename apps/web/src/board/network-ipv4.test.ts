@@ -130,6 +130,15 @@ describe('IPv4 documentation calculations', () => {
       ]).usable,
     ).toBe(4294967295);
   });
+  it('omits explicitly cleared subnets instead of counting a legacy alias', () => {
+    expect(networkLayoutTotals([{ subnet: '', cidr: '192.0.2.0/24' }])).toEqual(
+      {
+        vlans: 0,
+        subnets: 0,
+        usable: null,
+      },
+    );
+  });
   it('leaves usable unknown without valid IPv4 and never changes entries', () => {
     const entries: Record<string, JsonValue>[] = [
       { vlanId: ' ', subnet: '2001:db8::/64' },

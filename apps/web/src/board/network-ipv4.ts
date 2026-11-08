@@ -86,10 +86,7 @@ export function networkLayoutTotals(entries: Record<string, JsonValue>[]): {
       const key = String(vlan).trim();
       if (key) vlans.add(key);
     }
-    const cidr =
-      typeof entry.subnet === 'string' && entry.subnet.trim()
-        ? entry.subnet
-        : entry.cidr;
+    const cidr = Object.hasOwn(entry, 'subnet') ? entry.subnet : entry.cidr;
     const subnet = typeof cidr === 'string' ? ipv4Subnet(cidr) : null;
     if (subnet) subnets.set(subnet.canonicalCidr, subnet);
   }

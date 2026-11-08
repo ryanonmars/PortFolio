@@ -381,6 +381,7 @@ test('Detailed canvas layout preserves Compact presentation, authored data and s
   const networkName = 'Network visual layout';
   const longName = 'Management with a deliberately long documentation name';
   const configuredEntries = Array.from({ length: 12 }, (_, index) => ({
+    networkEntryId: randomUUID(),
     networkEntryVersion: 2,
     vlanId: String(index + 1),
     vlanName: index === 0 ? longName : `Network ${index + 1}`,
@@ -785,6 +786,7 @@ test('Detailed layout gives one and three VLANs the reference hierarchy without 
           'dhcpEnd',
         ],
         entries: Array.from({ length: count }, (_, index) => ({
+          networkEntryId: randomUUID(),
           networkEntryVersion: 2,
           vlanId: String([1, 20, 30][index]),
           vlanName: ['Management', 'Server', 'User Devices'][index]!,

@@ -12,6 +12,7 @@ import {
   boardPortLayout,
   networkDisplayFields,
   normalizeNetworkEntry,
+  createNetworkEntry,
   type BoardDocument,
   type BoardElement,
   type BoardPort,
@@ -781,7 +782,11 @@ export function BoardInspector({
                     </details>
                   );
                 })}
-                <button onClick={() => updateEntries([...entries, {}])}>
+                <button
+                  onClick={() =>
+                    updateEntries([...entries, createNetworkEntry()])
+                  }
+                >
                   Add network entry
                 </button>
               </>
