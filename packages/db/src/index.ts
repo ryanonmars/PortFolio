@@ -227,3 +227,5 @@ export async function restoreDatabase(
     rmSync(stage, { recursive: true, force: true });
   }
 }
+
+export { backupApplication, restoreApplication } from './application-backup.js';

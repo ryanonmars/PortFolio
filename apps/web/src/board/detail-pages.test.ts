@@ -316,3 +316,60 @@ describe('read-only board detail pages', () => {
     expect(html).toContain('Show more devices');
   });
 });
+
+describe('detail page attachments', () => {
+  const attachmentDocument = fixture();
+  const renderAttachments = (page: BoardPage, attachmentsReady = true) =>
+    renderToStaticMarkup(
+      createElement(BoardDetailPages, {
+        document: attachmentDocument,
+        boardName: 'Test',
+        boardId: 'board-id',
+        attachmentsReady,
+        page,
+        onNavigate: () => {},
+      }),
+    );
+  it('only renders attachments for an existing selected object', () => {
+    expect(renderAttachments({ kind: 'device', deviceId: 'device' })).toContain(
+      'aria-label="Attachments"',
+    );
+    const item = networkItems(attachmentDocument)[0]!;
+    expect(
+      renderAttachments({
+        kind: 'network',
+        containerId: item.container.id,
+        entryId: item.entryId,
+      }),
+    ).toContain('aria-label="Attachments"');
+    for (const page of [
+      { kind: 'canvas' },
+      { kind: 'devices' },
+      { kind: 'networks' },
+      { kind: 'device', deviceId: 'missing' },
+    ] as BoardPage[])
+      expect(renderAttachments(page)).not.toContain('aria-label="Attachments"');
+  });
+  it('starts with accessible loading and limits uploads to approved file types', () => {
+    const html = renderAttachments({ kind: 'device', deviceId: 'device' });
+    expect(html).toContain('Loading attachments');
+    expect(html).toContain('multiple=""');
+    expect(html).toContain('.jpg,.jpeg,.png,.webp,.pdf,.txt');
+    expect(html).toContain('cannot be undone with board Undo');
+  });
+  it('waits for board navigation before preparing device or VLAN attachments', () => {
+    const item = networkItems(attachmentDocument)[0]!;
+    for (const page of [
+      { kind: 'device', deviceId: 'device' },
+      {
+        kind: 'network',
+        containerId: item.container.id,
+        entryId: item.entryId,
+      },
+    ] as BoardPage[]) {
+      expect(renderAttachments(page, false)).toContain('Waiting for board');
+      expect(renderAttachments(page, true)).toContain('Loading attachments');
+      expect(renderAttachments(page, true)).not.toContain('Waiting for board');
+    }
+  });
+});

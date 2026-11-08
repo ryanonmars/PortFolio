@@ -22,8 +22,12 @@ import {
   type DetailChange,
 } from './DetailPageEditors.js';
 import './detail-pages.css';
+import { AttachmentsSection } from './AttachmentsSection.js';
 
 interface Props {
+  boardId?: string;
+  attachmentsReady?: boolean;
+  beforeAttachmentChange?: () => Promise<void>;
   document: BoardDocument;
   boardName: string;
   page: BoardPage;
@@ -504,7 +508,15 @@ function AddressSpace({ entry }: { entry: Record<string, JsonValue> }) {
     </section>
   );
 }
-function NetworkDetail({ document, page, onNavigate, onChange }: Props) {
+function NetworkDetail({
+  document,
+  page,
+  onNavigate,
+  onChange,
+  boardId,
+  beforeAttachmentChange,
+  attachmentsReady,
+}: Props) {
   const [editing, setEditing] = useState(false);
   if (page.kind !== 'network') return null;
   const item = findNetwork(document, page.containerId, page.entryId);
@@ -582,6 +594,18 @@ function NetworkDetail({ document, page, onNavigate, onChange }: Props) {
           onChange={onChange}
         />
       )}
+      {boardId && (
+        <AttachmentsSection
+          boardId={boardId}
+          ready={attachmentsReady}
+          owner={{
+            type: 'network',
+            elementId: page.containerId,
+            entryId: page.entryId,
+          }}
+          beforeAttachmentChange={beforeAttachmentChange}
+        />
+      )}
       <Documentation
         properties={entry}
         omit={[
@@ -604,7 +628,15 @@ function NetworkDetail({ document, page, onNavigate, onChange }: Props) {
     </>
   );
 }
-function DeviceDetail({ document, page, onNavigate, onChange }: Props) {
+function DeviceDetail({
+  document,
+  page,
+  onNavigate,
+  onChange,
+  boardId,
+  beforeAttachmentChange,
+  attachmentsReady,
+}: Props) {
   const [editing, setEditing] = useState(false);
   const [editingPortId, setEditingPortId] = useState<string | null>(null);
   if (page.kind !== 'device') return null;
@@ -806,6 +838,14 @@ function DeviceDetail({ document, page, onNavigate, onChange }: Props) {
           properties={device.properties}
           entity="Device"
           onChange={onChange}
+        />
+      )}
+      {boardId && (
+        <AttachmentsSection
+          boardId={boardId}
+          ready={attachmentsReady}
+          owner={{ type: 'device', elementId: device.id }}
+          beforeAttachmentChange={beforeAttachmentChange}
         />
       )}
       <Documentation

@@ -15,6 +15,7 @@ import { registerTransfer } from './transfer.js';
 import { registerNavigation } from './navigation.js';
 import { ApiError } from './errors.js';
 import { registerBoards } from './boards.js';
+import { registerAttachments } from './attachments.js';
 
 export interface AppOptions {
   dataDir: string;
@@ -24,11 +25,22 @@ export interface AppOptions {
   localOrigin?: string;
   allowedOrigins?: readonly string[];
   trustedHosts?: readonly string[];
+  attachmentMaxFileBytes?: number;
+  attachmentMaxStorageBytes?: number;
   /** Test/compatibility harness only; production serves the canonical board editor. */
   enableLegacyEditor?: boolean;
 }
 
 export async function createApp(options: AppOptions) {
+  for (const key of [
+    'attachmentMaxFileBytes',
+    'attachmentMaxStorageBytes',
+  ] as const) {
+    const value = options[key];
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
+      throw new Error(`${key} must be a positive safe integer`);
+    }
+  }
   const db = openDatabase({ dataDir: options.dataDir });
   const app = Fastify({
     logger: options.logger ?? false,
@@ -75,10 +87,11 @@ export async function createApp(options: AppOptions) {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'same-origin');
     reply.header('X-Frame-Options', 'DENY');
-    reply.header(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
-    );
+    if (!reply.hasHeader('Content-Security-Policy'))
+      reply.header(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      );
   });
   app.get('/healthz', async (_request, reply) => {
     reply.header('Cache-Control', 'no-store');
@@ -96,7 +109,15 @@ export async function createApp(options: AppOptions) {
     await app.close();
     throw error;
   });
-  registerBoards(app, db, security.requireAuth);
+  const attachments = await registerAttachments(app, db, security.requireAuth, {
+    dataDir: options.dataDir,
+    maxFileBytes: options.attachmentMaxFileBytes,
+    maxStorageBytes: options.attachmentMaxStorageBytes,
+  }).catch(async (error: unknown) => {
+    await app.close();
+    throw error;
+  });
+  registerBoards(app, db, security.requireAuth, attachments.reconcile);
   if (options.enableLegacyEditor === true) {
     registerOrganization(app, db, security.requireAuth);
     registerNavigation(app, db, security.requireAuth);

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { BoardSession } from './session.js';
+import { attachmentRecoveryMs } from '../../../../packages/shared/src/attachments.js';
 import {
   emptyBoardDocument,
   type BoardRecord,
@@ -96,6 +97,36 @@ describe('board autosave queue', () => {
 });
 
 describe('board replacement and typing history', () => {
+  it('expires undo and redo snapshots before attachment recovery ends without expiring current data', () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const item = board();
+    const session = new BoardSession(
+      item.id,
+      item,
+      async () => item,
+      () => {},
+      100000,
+    );
+    try {
+      session.update({ ...session.document, grid: false }, 'Edit');
+      expect(session.canUndo).toBe(true);
+      now += attachmentRecoveryMs + 1;
+      expect(session.canUndo).toBe(false);
+      session.undo();
+      expect(session.document.grid).toBe(false);
+      session.update({ ...session.document, showCables: false }, 'Edit');
+      session.undo();
+      expect(session.canRedo).toBe(true);
+      now += attachmentRecoveryMs + 1;
+      expect(session.canRedo).toBe(false);
+      session.redo();
+      expect(session.document.showCables).toBe(true);
+    } finally {
+      session.dispose();
+      clock.mockRestore();
+    }
+  });
   it('refuses replacement while an older write is still in flight, even with newer queued edits', async () => {
     const item = board();
     let release!: (value: BoardRecord) => void;

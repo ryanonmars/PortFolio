@@ -4,6 +4,14 @@ if (!Number.isInteger(port) || port < 1 || port > 65535)
   throw new Error('PORT must be between 1 and 65535');
 const app = await createApp({
   dataDir: process.env.DATA_DIR ?? './data',
+  attachmentMaxFileBytes:
+    process.env.ATTACHMENT_MAX_BYTES === undefined
+      ? undefined
+      : Number(process.env.ATTACHMENT_MAX_BYTES),
+  attachmentMaxStorageBytes:
+    process.env.ATTACHMENT_STORAGE_MAX_BYTES === undefined
+      ? undefined
+      : Number(process.env.ATTACHMENT_STORAGE_MAX_BYTES),
   logger: true,
   publicOrigin: process.env.PUBLIC_ORIGIN || undefined,
   localOrigin: process.env.LOCAL_ORIGIN || undefined,

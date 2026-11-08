@@ -96,11 +96,23 @@ The source repository and container package are public. If package visibility ne
 
 The approved detailed connector artwork is retained at every zoom. Link states are manually documented; VLAN and cable colors do not indicate live status.
 
+## Detail Pages and attachments
+
+Expand a board in the sidebar to browse its Devices and Networks. Each individual device or VLAN page has an optional **Attachments** section. Select multiple files with **Add photos or files**, open image previews, download originals, or edit display names and captions. Attachments stay on Detail Pages and do not appear on the canvas.
+
+Supported files are JPEG, PNG, WebP, PDF, and UTF-8 text/reference files (`txt`, `md`, `csv`, `json`, `yaml`, `yml`, `conf`, `cfg`, `ini`, `log`). Images receive bounded server-generated thumbnails and previews; original files are preserved. PDFs download as files. Executables, archives, HTML and SVG uploads are excluded.
+
+Files persist under `DATA_DIR/attachments/`; SQLite stores their metadata and exact board/device or board/container/VLAN-entry ownership. Docker's existing `/data` bind mount includes both. Renaming objects does not affect attachments. Lists load only for the open object's Detail Page, and every file request requires authentication.
+
+Defaults are 20 MiB per file, 100 attachments per object, and 2 GiB of retained file storage, including image derivatives and deleted files awaiting cleanup. Set `ATTACHMENT_MAX_BYTES` and `ATTACHMENT_STORAGE_MAX_BYTES` to positive integer byte limits when needed. Image processing is bounded to two concurrent operations and 64 million input pixels; uploads have a 60-second deadline.
+
+Deleting an object hides its attachments while retaining them for 30 days so board Undo can restore the original owner. Board history remains limited to 40 steps in the open editor and expires after 30 days. Direct attachment deletion asks for confirmation, hides the attachment immediately and cannot be reversed with board Undo. Physical cleanup runs at startup and hourly after the retention period; abandoned partial uploads are cleaned after 24 hours. Retained files still count toward storage limits.
+
 ## Autosave and recovery
 
 Autosave is debounced and serialized. Each write includes the board version; concurrent changes cannot silently overwrite one another. **Saved** means the submitted revision was acknowledged. Failed edits remain in the current editor. Retry temporary failures, download an unsaved draft, or explicitly load the saved board after reviewing a conflict. Board switching and logout wait for pending saves.
 
-The board menu exports versioned JSON and a clean SVG image. Import previews a new board and remaps object IDs; it never replaces an existing board. JSON preserves layouts, port identity relationships, cables and authored custom data.
+The board menu exports versioned JSON and a clean SVG image. Import previews a new board and remaps object IDs; it never replaces an existing board. JSON preserves layouts, port identity relationships, cables and authored custom data. Ordinary JSON/SVG exports and board duplication do not include attachments or grant access to source files. Use a complete application backup to preserve files.
 
 ```sh
 docker compose exec portfolio node dist/scripts/database.js backup
@@ -108,9 +120,11 @@ docker compose exec portfolio node dist/scripts/database.js backup
 DATA_DIR=/path/to/new-empty-data pnpm db:restore /path/to/snapshot.sqlite
 ```
 
-Backups contain private documentation and account/session data. Keep them private.
+The backup command creates a SQLite snapshot and an adjacent `snapshot.sqlite.attachments/` directory containing a manifest, originals and existing generated previews. **Keep both parts together.** They form one complete backup. File copying is coordinated with cleanup, and restore verifies file sizes and hashes before publishing the restored database. Missing originals cause an explicit failure. Older database-only backups without attachments remain supported.
 
-For production, copy backups out of `/data/backups` to a separate protected location. To restore on Docker, stop the service, prepare a new empty host directory writable by the configured `PUID`/`PGID` (default `1000:1000`), and run the same pinned image against that directory:
+Backups contain private documentation, uploaded files and account/session data. Keep them private.
+
+For production, copy the snapshot and its adjacent attachment directory out of `/data/backups` to a separate protected location. To restore on Docker, stop the service, prepare a new empty host directory writable by the configured `PUID`/`PGID` (default `1000:1000`), and run the same pinned image against that directory:
 
 ```sh
 docker compose stop
@@ -127,13 +141,15 @@ Then set `DATA_PATH` to the restored directory in the production `.env` and star
 
 Migration007 adds board/group storage without editing earlier migrations or deleting relational data. Existing Sites become Boards and Workspaces become optional Groups. Equipment, ports and physical cable IDs remain stable. VLANs, subnets and DHCP scopes become editable Network entries. Original rows, custom definitions, templates, racks and unsupported logical links remain in a recoverable legacy payload and the original tables. Conditional **Migration notes** identify records retained for recovery rather than active board objects. Conversion is idempotent; deleting a migrated board does not recreate it on restart.
 
+Migration008 adds attachment metadata and temporary backup leases. Existing boards require no new fields or manual migration.
+
 Production exposes board, authentication and health APIs. Old editing routes are retired. Explicit compatibility registration exists only for the legacy regression suite.
 
 The pre-redesign code checkpoint is local commit `3dd2fbf`. For rollback, use that checkpoint in a separate checkout with its pre-upgrade backup restored into a new data directory. Do not replace a live SQLite file or destructively rewrite Git history.
 
 ## Development
 
-Node24 and pnpm10.28.2 are pinned. React/TypeScript, Fastify and SQLite remain the only application stack; the HTML/SVG canvas adds no diagramming dependency.
+Node24 and pnpm10.28.2 are pinned. The application uses React/TypeScript, Fastify and SQLite, with Sharp for bounded image processing. The HTML/SVG canvas adds no diagramming dependency.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -148,6 +164,15 @@ pnpm test:e2e
 ```
 
 The browser suite covers the board product on desktop and mobile with isolated synthetic databases. Legacy domain API/security/migration tests remain active in explicit compatibility mode. No automated tests use live network devices or the user's data.
+
+Optional attachment persistence smoke test using a local Docker image and disposable synthetic data:
+
+```sh
+docker build -t portfolio:phase3-local .
+pnpm exec tsx scripts/test-attachments-container.ts
+```
+
+This checks a read-only container, thumbnail generation, container recreation, and complete backup/restore. Set `PORTFOLIO_TEST_IMAGE` or `PORTFOLIO_TEST_PORT` to override the image or default loopback port 3191. Portable per-board attachment archives and in-browser document viewers are deferred.
 
 ## Current limits
 

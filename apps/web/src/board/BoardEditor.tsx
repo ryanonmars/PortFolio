@@ -712,6 +712,15 @@ export const BoardEditor = forwardRef<
         </div>
         {error && <p role="alert">{error}</p>}
         <BoardDetailPages
+          boardId={board.id}
+          attachmentsReady={!inactive && !gesture}
+          beforeAttachmentChange={async () => {
+            if (blocked() || gestureRef.current)
+              throw new Error(
+                'Finish the current board action before changing attachments.',
+              );
+            await session.flush();
+          }}
           document={document}
           boardName={board.name}
           page={page}

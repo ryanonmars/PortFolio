@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { attachmentOwnersChanged } from '../../../packages/shared/src/attachments.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -86,6 +87,10 @@ export function registerBoards(
   app: FastifyInstance,
   db: DatabaseSync,
   requireAuth: (request: FastifyRequest) => unknown,
+  reconcileAttachments?: (
+    boardId: string,
+    document: BoardDocument | null,
+  ) => void,
 ) {
   const route = {
     preHandler: async (request: FastifyRequest) => {
@@ -225,19 +230,25 @@ export function registerBoards(
         const groupId =
           input.groupId === undefined ? current.groupId : input.groupId;
         requireGroup(groupId);
+        const document = normalizeNetworkDocument(
+          input.document ?? current.document,
+        );
         db.prepare(
           'UPDATE boards SET name=?,group_id=?,order_index=?,document_json=?,row_version=row_version+1,updated_at=? WHERE id=? AND row_version=?',
         ).run(
           input.name ?? current.name,
           groupId,
           input.order ?? current.order,
-          JSON.stringify(
-            normalizeNetworkDocument(input.document ?? current.document),
-          ),
+          JSON.stringify(document),
           Date.now(),
           current.id,
           input.rowVersion,
         );
+        if (
+          input.document &&
+          attachmentOwnersChanged(current.document, document)
+        )
+          reconcileAttachments?.(current.id, document);
         return { board: board(current.id) };
       }),
     );
@@ -249,6 +260,7 @@ export function registerBoards(
         const current = board(params(request).boardId!);
         if (current.rowVersion !== input.rowVersion) staleVersion();
         db.prepare('DELETE FROM boards WHERE id=?').run(current.id);
+        reconcileAttachments?.(current.id, null);
       }),
     );
     return reply.code(204).send();

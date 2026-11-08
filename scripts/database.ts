@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
 import {
-  backupDatabase,
+  backupApplication,
   openDatabase,
-  restoreDatabase,
+  restoreApplication,
 } from '../packages/db/src/index.js';
 
 const command = process.argv[2];
@@ -14,7 +14,7 @@ if (command === 'restore') {
     process.exitCode = 1;
   } else {
     try {
-      await restoreDatabase(process.argv[3], process.env.DATA_DIR);
+      await restoreApplication(process.argv[3], process.env.DATA_DIR);
       console.log(
         'Snapshot restored into the new data directory. Start PortFolio using this directory.',
       );
@@ -37,8 +37,11 @@ if (command === 'restore') {
         process.argv[3] ??
           `${dataDir}/backups/portfolio-${new Date().toISOString().replaceAll(':', '-')}.sqlite`,
       );
-      await backupDatabase(db, destination);
+      await backupApplication(db, dataDir, destination);
       console.log(`Backup created: ${destination}`);
+      console.log(
+        `Keep the adjacent ${destination}.attachments directory with this snapshot.`,
+      );
       console.log('Backups contain private application data; store securely.');
     } else {
       console.log('Database migrations applied.');

@@ -62,7 +62,15 @@ describe('SQLite foundation', () => {
     ).toEqual({ value: 'saved' });
     expect(
       reopened.prepare('SELECT count(*) AS count FROM schema_migrations').get(),
-    ).toEqual({ count: 7 });
+    ).toEqual({ count: 8 });
+    expect(
+      reopened.prepare('SELECT count(*) AS count FROM board_attachments').get(),
+    ).toEqual({ count: 0 });
+    expect(
+      reopened
+        .prepare('SELECT count(*) AS count FROM attachment_backup_leases')
+        .get(),
+    ).toEqual({ count: 0 });
     expect(statSync(join(dataDir, 'app.sqlite')).mode & 0o777).toBe(0o600);
   });
 

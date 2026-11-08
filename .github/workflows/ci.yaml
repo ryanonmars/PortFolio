@@ -52,5 +52,9 @@ jobs:
           if-no-files-found: ignore
       - name: Build production container
         run: docker compose build
+      - name: Validate attachment persistence and complete backup recovery
+        env:
+          PORTFOLIO_TEST_IMAGE: ghcr.io/ryanonmars/portfolio:local
+        run: pnpm exec tsx scripts/test-attachments-container.ts
       - name: Validate numeric container identities, permissions and upgrades
         run: node scripts/test-container-identity.js ghcr.io/ryanonmars/portfolio:local
