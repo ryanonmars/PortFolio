@@ -8,12 +8,12 @@ describe('incoming LAN origin policy', () => {
 
   it('preserves the complete upstream root-zone snapshot without wrapping inside names', () => {
     const upstream =
-      '# Version 2026110304, Last Updated Wed Nov  4 07:07:01 2026 UTC\n' +
+      '# Version 2026110800, Last Updated Sun Nov  8 07:07:01 2026 UTC\n' +
       [...publicTlds].map((name) => name.toUpperCase()).join('\n') +
       '\n';
     expect(publicTlds.size).toBe(1436);
     expect(createHash('sha256').update(upstream).digest('hex')).toBe(
-      'f0ba6b170d8c26a682d964e784a0caf299c1f027b0916c55cc04d2f153b03dfd',
+      'd9fc03e31c77370f33363ba099d05bee5906882eb3d21a99feb64ded3a07aa23',
     );
   });
 

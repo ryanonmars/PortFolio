@@ -171,6 +171,7 @@ const apiProgram = `
     const html=await htmlResponse.text(),asset=html.match(/src="([^"]+)"/)[1];
     const assetResponse=await fetch(new URL(asset,'http://127.0.0.1:3088'));assert.equal(assetResponse.status,200);
     assert(assetResponse.headers.get('content-type').includes('javascript'));
+    assert((await assetResponse.arrayBuffer()).byteLength>0);
     await request('GET','/auth/session');
     const credentials={username:'synthetic-identity-admin',password:'Synthetic-container-identity-password-42'};
     if(mode==='seed')await request('POST','/auth/setup',credentials,201);
