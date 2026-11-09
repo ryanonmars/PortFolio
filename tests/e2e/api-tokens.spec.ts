@@ -26,24 +26,12 @@ test('API tokens show a secret once, preserve metadata, revoke and fit the viewp
       await page
         .getByRole('button', { name: 'Open board browser', exact: true })
         .click();
-    const details = page.locator('.board-browser footer details');
-    if (!(await details.evaluate((e) => e.hasAttribute('open'))))
-      await settings.click();
-    await page.getByRole('button', { name: 'API Tokens', exact: true }).click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('link', { name: 'API Tokens', exact: true }).click();
   }
   await open();
-  const dialog = page.getByRole('dialog', { name: 'API Tokens', exact: true });
+  const dialog = page.getByRole('region', { name: 'API Tokens', exact: true });
   await expect(dialog).toBeVisible();
-  await expect(page.getByLabel('Token name', { exact: true })).toBeFocused();
-  await page
-    .getByRole('button', { name: 'Close API Tokens', exact: true })
-    .focus();
-  await page.keyboard.press('Shift+Tab');
-  await expect
-    .poll(() =>
-      page.evaluate(() => document.activeElement?.closest('dialog') !== null),
-    )
-    .toBe(true);
   await page
     .getByLabel('Token name', { exact: true })
     .fill('Documentation assistant');
@@ -68,9 +56,9 @@ test('API tokens show a secret once, preserve metadata, revoke and fit the viewp
       ),
     )
     .toBe(true);
-  await page.keyboard.press('Escape');
+  await page.getByRole('link', { name: 'General', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await open();
+  await page.getByRole('link', { name: 'API Tokens', exact: true }).click();
   await expect(page.getByLabel('New API token', { exact: true })).toHaveCount(
     0,
   );
@@ -88,8 +76,6 @@ test('API tokens show a secret once, preserve metadata, revoke and fit the viewp
     .getByRole('button', { name: 'Confirm revoke', exact: true })
     .click();
   await expect(dialog.getByText('Revoked', { exact: true })).toBeVisible();
-  await page
-    .getByRole('button', { name: 'Close API Tokens', exact: true })
-    .click();
+  await page.getByRole('link', { name: 'General', exact: true }).click();
   await expect(dialog).not.toBeVisible();
 });

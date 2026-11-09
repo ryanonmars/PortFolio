@@ -59,6 +59,7 @@ export function registerTransfer(
   db: DatabaseSync,
   requireAuth: (request: FastifyRequest) => unknown,
   dataDir: string,
+  nativeDatabase: () => DatabaseSync = () => db,
 ) {
   const route = siteRoute(db, requireAuth);
   const importRoute = { ...route, bodyLimit: ARCHIVE_MAX_BYTES + 65536 };
@@ -211,7 +212,7 @@ export function registerTransfer(
       ensureName(input, siteId);
       try {
         await backupDatabase(
-          db,
+          nativeDatabase(),
           resolve(
             dataDir,
             'backups',

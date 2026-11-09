@@ -105,7 +105,7 @@ export function uploadAttachment<T>(
       } catch {
         reject(
           new Error(
-            'The upload response could not be read. Refresh attachments before retrying.',
+            'The upload response could not be read. Refresh the page before retrying.',
           ),
         );
         return;
