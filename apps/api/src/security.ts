@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { credentialsSchema } from '../../../packages/shared/src/index.js';
 import { ApiError, validate } from './errors.js';
 import { createOriginPolicy } from './origin-policy.js';
+import { hashApiToken, type IntegrationUser } from './api-tokens.js';
 
 const cookieName = 'portfolio_session';
 const authenticatedAge = 7 * 24 * 60 * 60;
@@ -82,6 +83,7 @@ export async function registerSecurity(
   localOrigin?: string,
   allowedOrigins: readonly string[] = [],
   trustedHosts?: readonly string[],
+  integrationAllowPrivateHttp = false,
 ) {
   const policy = createOriginPolicy({
     publicOrigin,
@@ -126,6 +128,94 @@ export async function registerSecurity(
     if (!session?.user_id || !session.username)
       throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in to continue');
     return { id: session.user_id, username: session.username };
+  };
+  const integrationBuckets = new Map<
+    string,
+    { start: number; count: number }
+  >();
+  const integrationUsers = new WeakMap<FastifyRequest, IntegrationUser>();
+  const requireIntegrationAuth = (request: FastifyRequest): IntegrationUser => {
+    const authenticated = integrationUsers.get(request);
+    if (authenticated) return authenticated;
+    const route = request.routeOptions.url ?? '';
+    if (!route.startsWith('/api/v1/integration/'))
+      throw new ApiError(
+        401,
+        'UNAUTHENTICATED',
+        'An integration token is required',
+      );
+    const match = /^Bearer (pf_[a-f0-9]{64})$/i.exec(
+      request.headers.authorization ?? '',
+    );
+    if (!match)
+      throw new ApiError(
+        401,
+        'UNAUTHENTICATED',
+        'An integration token is required',
+      );
+    const now = Date.now();
+    const token = db
+      .prepare(
+        `SELECT t.id AS tokenId,t.user_id AS id,u.username,t.access,t.expires_at,t.revoked_at,u.disabled
+      FROM personal_api_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=?`,
+      )
+      .get(hashApiToken(match[1]!)) as
+      | (IntegrationUser & {
+          expires_at: number | null;
+          revoked_at: number | null;
+          disabled: number;
+        })
+      | undefined;
+    if (
+      !token ||
+      token.disabled ||
+      token.revoked_at !== null ||
+      (token.expires_at !== null && token.expires_at <= now)
+    )
+      throw new ApiError(
+        401,
+        'UNAUTHENTICATED',
+        'API token is invalid or expired',
+      );
+    for (const [key, bucket] of integrationBuckets)
+      if (bucket.start + 60_000 <= now) integrationBuckets.delete(key);
+    const bucket = integrationBuckets.get(token.tokenId) ?? {
+      start: now,
+      count: 0,
+    };
+    bucket.count++;
+    integrationBuckets.set(token.tokenId, bucket);
+    if (bucket.count > 120)
+      throw new ApiError(
+        429,
+        'RATE_LIMITED',
+        'Too many integration requests. Try again later',
+      );
+    if (
+      token.access !== 'write' &&
+      !['GET', 'HEAD', 'OPTIONS'].includes(request.method) &&
+      !(
+        request.method === 'POST' &&
+        route === '/api/v1/integration/proposals/validate'
+      )
+    )
+      throw new ApiError(
+        403,
+        'INSUFFICIENT_SCOPE',
+        'This API token has read-only access',
+      );
+    db.prepare('UPDATE personal_api_tokens SET last_used_at=? WHERE id=?').run(
+      now,
+      token.tokenId,
+    );
+    const user: IntegrationUser = {
+      id: token.id,
+      username: token.username,
+      tokenId: token.tokenId,
+      access: token.access,
+    };
+    integrationUsers.set(request, user);
+    return user;
   };
   const rotate = (
     request: FastifyRequest,
@@ -191,6 +281,22 @@ export async function registerSecurity(
         'INVALID_ORIGIN',
         'Request origin is not allowed',
       );
+    }
+    if (
+      routePath.startsWith('/api/v1/integration/') &&
+      request.headers.authorization !== undefined
+    ) {
+      // Exact configured HTTPS origins support TLS-terminating reverse proxies.
+      const privateHttp =
+        integrationAllowPrivateHttp &&
+        createOriginPolicy().originFor(request.headers.host) !== null;
+      if (!expectedOrigin.startsWith('https:') && !privateHttp)
+        throw new ApiError(
+          403,
+          'TLS_REQUIRED',
+          'Integration tokens require HTTPS',
+        );
+      return;
     }
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return;
     if (!requestOrigin) {
@@ -302,5 +408,5 @@ export async function registerSecurity(
     });
     return reply.code(204).send();
   });
-  return { requireAuth };
+  return { requireAuth, requireIntegrationAuth };
 }

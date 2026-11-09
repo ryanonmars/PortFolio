@@ -46,6 +46,64 @@ afterEach(() => {
 });
 
 describe('SQLite foundation', () => {
+  it('adds integration tables to an existing database while preserving records and enforcing token scope', () => {
+    const dataDir = folder();
+    const migrationsDir = migrationFixture();
+    for (const file of [
+      '002_auth_organization.sql',
+      '003_network_equipment.sql',
+      '004_configure_grid.sql',
+      '005_device_templates.sql',
+      '006_logical_connections.sql',
+      '007_boards.sql',
+      '008_board_attachments.sql',
+    ])
+      copyFileSync(
+        resolve('packages/db/migrations', file),
+        join(migrationsDir, file),
+      );
+    const old = database(dataDir, migrationsDir);
+    old
+      .prepare(
+        'INSERT INTO users(id,username,password_hash,created_at,updated_at) VALUES (?,?,?,?,?)',
+      )
+      .run('admin', 'admin', 'synthetic', 1, 1);
+    old.close();
+    copyFileSync(
+      resolve('packages/db/migrations/009_api_integration.sql'),
+      join(migrationsDir, '009_api_integration.sql'),
+    );
+    const upgraded = database(dataDir, migrationsDir);
+    expect(upgraded.prepare('SELECT username FROM users').get()).toEqual({
+      username: 'admin',
+    });
+    expect(() =>
+      upgraded
+        .prepare(
+          'INSERT INTO personal_api_tokens(id,user_id,name,access,token_hash,created_at) VALUES (?,?,?,?,?,?)',
+        )
+        .run('token', 'missing', 'Agent', 'read', 'hash', 1),
+    ).toThrow('FOREIGN KEY');
+    expect(() =>
+      upgraded
+        .prepare(
+          'INSERT INTO personal_api_tokens(id,user_id,name,access,token_hash,created_at) VALUES (?,?,?,?,?,?)',
+        )
+        .run('token', 'admin', 'Agent', 'admin', 'hash', 1),
+    ).toThrow('CHECK constraint');
+    upgraded
+      .prepare(
+        'INSERT INTO personal_api_tokens(id,user_id,name,access,token_hash,created_at) VALUES (?,?,?,?,?,?)',
+      )
+      .run('token', 'admin', 'Agent', 'write', 'hash', 1);
+    const insert = upgraded.prepare(
+      'INSERT INTO integration_proposals(id,user_id,token_id,digest,proposal_json,created_at,expires_at,idempotency_key) VALUES (?,?,?,?,?,?,?,?)',
+    );
+    insert.run('proposal', 'admin', 'token', 'digest', '{}', 1, 2, 'retry');
+    expect(() =>
+      insert.run('duplicate', 'admin', 'token', 'digest', '{}', 1, 2, 'retry'),
+    ).toThrow('UNIQUE constraint');
+  });
   it('applies migrations once and preserves values when reopened', () => {
     const dataDir = folder();
     const db = database(dataDir);
@@ -62,7 +120,7 @@ describe('SQLite foundation', () => {
     ).toEqual({ value: 'saved' });
     expect(
       reopened.prepare('SELECT count(*) AS count FROM schema_migrations').get(),
-    ).toEqual({ count: 8 });
+    ).toEqual({ count: 9 });
     expect(
       reopened.prepare('SELECT count(*) AS count FROM board_attachments').get(),
     ).toEqual({ count: 0 });

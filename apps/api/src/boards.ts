@@ -63,7 +63,7 @@ const boardColumns =
 const groupColumns = 'id,name,order_index AS "order",row_version AS rowVersion';
 
 /** Bound arbitrary annotation JSON before recursive schema validation. */
-function guardJson(input: unknown): void {
+export function guardJson(input: unknown): void {
   const pending: { value: unknown; depth: number }[] = [
     { value: input, depth: 0 },
   ];
@@ -166,6 +166,34 @@ export function registerBoards(
       .all() as unknown as BoardGroup[],
   });
 
+  // Shared by the visual editor and integration API. Callers own the transaction.
+  const update = (boardId: string, body: unknown): BoardRecord => {
+    guardJson(body);
+    const input = validate(updateSchema, body);
+    const current = board(boardId);
+    if (current.rowVersion !== input.rowVersion) staleVersion();
+    const groupId =
+      input.groupId === undefined ? current.groupId : input.groupId;
+    requireGroup(groupId);
+    const document = normalizeNetworkDocument(
+      input.document ?? current.document,
+    );
+    db.prepare(
+      'UPDATE boards SET name=?,group_id=?,order_index=?,document_json=?,row_version=row_version+1,updated_at=? WHERE id=? AND row_version=?',
+    ).run(
+      input.name ?? current.name,
+      groupId,
+      input.order ?? current.order,
+      JSON.stringify(document),
+      Date.now(),
+      current.id,
+      input.rowVersion,
+    );
+    if (input.document && attachmentOwnersChanged(current.document, document))
+      reconcileAttachments?.(current.id, document);
+    return board(current.id);
+  };
+
   app.post('/api/v1/boards/reorder', writeRoute, async (request) => {
     const input = validate(reorderSchema, request.body);
     return mutation(() =>
@@ -221,36 +249,10 @@ export function registerBoards(
     board: board(params(request).boardId!),
   }));
   app.patch('/api/v1/boards/:boardId', writeRoute, async (request) => {
-    guardJson(request.body);
-    const input = validate(updateSchema, request.body);
     return mutation(() =>
-      transaction(db, () => {
-        const current = board(params(request).boardId!);
-        if (current.rowVersion !== input.rowVersion) staleVersion();
-        const groupId =
-          input.groupId === undefined ? current.groupId : input.groupId;
-        requireGroup(groupId);
-        const document = normalizeNetworkDocument(
-          input.document ?? current.document,
-        );
-        db.prepare(
-          'UPDATE boards SET name=?,group_id=?,order_index=?,document_json=?,row_version=row_version+1,updated_at=? WHERE id=? AND row_version=?',
-        ).run(
-          input.name ?? current.name,
-          groupId,
-          input.order ?? current.order,
-          JSON.stringify(document),
-          Date.now(),
-          current.id,
-          input.rowVersion,
-        );
-        if (
-          input.document &&
-          attachmentOwnersChanged(current.document, document)
-        )
-          reconcileAttachments?.(current.id, document);
-        return { board: board(current.id) };
-      }),
+      transaction(db, () => ({
+        board: update(params(request).boardId!, request.body),
+      })),
     );
   });
   app.delete('/api/v1/boards/:boardId', writeRoute, async (request, reply) => {
@@ -361,4 +363,7 @@ export function registerBoards(
     );
     return reply.code(204).send();
   });
+  return { get: board, list: listBoards, insert, update };
 }
+
+export type BoardService = ReturnType<typeof registerBoards>;

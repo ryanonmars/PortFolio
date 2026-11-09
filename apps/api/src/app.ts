@@ -16,6 +16,8 @@ import { registerNavigation } from './navigation.js';
 import { ApiError } from './errors.js';
 import { registerBoards } from './boards.js';
 import { registerAttachments } from './attachments.js';
+import { registerApiTokens } from './api-tokens.js';
+import { registerIntegration } from './integration.js';
 
 export interface AppOptions {
   dataDir: string;
@@ -27,6 +29,7 @@ export interface AppOptions {
   trustedHosts?: readonly string[];
   attachmentMaxFileBytes?: number;
   attachmentMaxStorageBytes?: number;
+  integrationAllowPrivateHttp?: boolean;
   /** Test/compatibility harness only; production serves the canonical board editor. */
   enableLegacyEditor?: boolean;
 }
@@ -43,7 +46,9 @@ export async function createApp(options: AppOptions) {
   }
   const db = openDatabase({ dataDir: options.dataDir });
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger
+      ? { redact: ['req.headers.authorization', 'req.headers.cookie'] }
+      : false,
     bodyLimit: 1_048_576,
   });
   app.setErrorHandler((error, request, reply) => {
@@ -105,6 +110,7 @@ export async function createApp(options: AppOptions) {
     options.localOrigin,
     options.allowedOrigins,
     options.trustedHosts,
+    options.integrationAllowPrivateHttp,
   ).catch(async (error: unknown) => {
     await app.close();
     throw error;
@@ -117,7 +123,14 @@ export async function createApp(options: AppOptions) {
     await app.close();
     throw error;
   });
-  registerBoards(app, db, security.requireAuth, attachments.reconcile);
+  const boards = registerBoards(
+    app,
+    db,
+    security.requireAuth,
+    attachments.reconcile,
+  );
+  registerApiTokens(app, db, security.requireAuth);
+  registerIntegration(app, db, boards, security.requireIntegrationAuth);
   if (options.enableLegacyEditor === true) {
     registerOrganization(app, db, security.requireAuth);
     registerNavigation(app, db, security.requireAuth);
