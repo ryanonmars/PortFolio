@@ -1,13 +1,28 @@
-import { defineConfig, devices } from '@playwright/test';
+import {
+  defineConfig,
+  devices,
+  type Project,
+  type PlaywrightTestOptions,
+  type PlaywrightWorkerOptions,
+} from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const ownsDataDir = !process.env.PORTFOLIO_E2E_DATA_DIR;
+const settingsOnly = process.env.PORTFOLIO_E2E_SETTINGS_ONLY === 'true';
 const dataDir =
   process.env.PORTFOLIO_E2E_DATA_DIR ??
   mkdtempSync(join(tmpdir(), 'portfolio-e2e-'));
 process.env.PORTFOLIO_E2E_DATA_DIR = dataDir;
+
+function selectProjects(
+  projects: Project<PlaywrightTestOptions, PlaywrightWorkerOptions>[],
+) {
+  return projects.filter(
+    (project) => !settingsOnly || project.name?.endsWith('-settings'),
+  );
+}
 
 export default defineConfig({
   metadata: { e2eDataDir: dataDir, ownsDataDir },
@@ -22,7 +37,25 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:3089',
     trace: 'retain-on-failure',
   },
-  projects: [
+  projects: selectProjects([
+    {
+      name: 'desktop-settings',
+      testMatch: '**/settings-backup.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 1000 },
+        baseURL: 'http://127.0.0.1:3173',
+      },
+    },
+    {
+      name: 'mobile-settings',
+      testMatch: '**/settings-backup.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
+        baseURL: 'http://127.0.0.1:3175',
+      },
+    },
     {
       name: 'http-lan-board',
       testMatch: '**/http-lan.spec.ts',
@@ -348,13 +381,16 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:3171',
       },
     },
-  ],
-  webServer: [
-    3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115, 3117, 3119,
-    3121, 3123, 3125, 3127, 3129, 3131, 3133, 3135, 3137, 3139, 3141, 3143,
-    3145, 3147, 3149, 3151, 3153, 3155, 3157, 3159, 3161, 3163, 3165, 3167,
-    3169, 3171,
-  ].map((port, index) => ({
+  ]),
+  webServer: (settingsOnly
+    ? [3173, 3175]
+    : [
+        3089, 3093, 3095, 3097, 3099, 3101, 3103, 3107, 3113, 3115, 3117, 3119,
+        3121, 3123, 3125, 3127, 3129, 3131, 3133, 3135, 3137, 3139, 3141, 3143,
+        3145, 3147, 3149, 3151, 3153, 3155, 3157, 3159, 3161, 3163, 3165, 3167,
+        3169, 3171, 3173, 3175,
+      ]
+  ).map((port, index) => ({
     command: index === 0 ? 'pnpm build && pnpm start' : 'pnpm start',
     url: `http://127.0.0.1:${port}/healthz`,
     reuseExistingServer: false,

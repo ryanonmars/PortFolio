@@ -74,6 +74,9 @@ describe('production board-only route cutover', () => {
     const before = legacy.db
       .prepare('SELECT * FROM devices WHERE site_id=?')
       .all(site.id);
+    // Production replaces the compatibility runtime rather than sharing its
+    // data directory with a second server during restoration-capable operation.
+    await legacy.app.close();
     const production = await createApp({
       dataDir: legacy.dataDir,
       webRoot: join(legacy.dataDir, 'no-web'),

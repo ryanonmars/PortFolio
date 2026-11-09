@@ -210,6 +210,7 @@ export async function registerAttachments(
   sharp.cache({ memory: 32, files: 0, items: 20 });
   sharp.concurrency(2);
   let closing = false;
+  let paused = false;
   const regenerations = new Map<string, Promise<unknown>>();
   const root = join(options.dataDir, 'attachments');
   privateDirectory(root);
@@ -626,6 +627,7 @@ export async function registerAttachments(
     }
   };
   const cleanup = () => {
+    if (paused) return;
     const removed: string[] = [];
     transaction(db, () => {
       db.prepare(
@@ -719,5 +721,22 @@ export async function registerAttachments(
       ...Array.from(pendingUploads.values(), (pending) => pending.done),
     ]);
   });
-  return { reconcile };
+  return {
+    reconcile,
+    prepare() {
+      privateDirectory(root);
+      privateDirectory(objects);
+      privateDirectory(staging);
+    },
+    async quiesce() {
+      paused = true;
+      await Promise.allSettled([
+        ...regenerations.values(),
+        ...Array.from(pendingUploads.values(), (pending) => pending.done),
+      ]);
+    },
+    resume() {
+      paused = false;
+    },
+  };
 }
