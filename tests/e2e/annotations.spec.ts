@@ -733,11 +733,15 @@ test('keyboard face controls do not place an armed annotation', async ({
     .getByRole('dialog', { name: 'Equipment Dock', exact: true })
     .getByRole('button', { name: 'Arrow', exact: true })
     .click();
+  // Arming a tool schedules canvas focus for the next animation frame.
+  // Wait for that handoff before moving keyboard focus to a device control.
+  await expect(page.getByTestId('board-canvas')).toBeFocused();
   const rear = object(page, 'router').getByRole('button', {
     name: 'Rear',
     exact: true,
   });
   await rear.focus();
+  await expect(rear).toBeFocused();
   await page.keyboard.press('Enter');
   await saved(page);
   const current = (await read(page, board.id)).document;
