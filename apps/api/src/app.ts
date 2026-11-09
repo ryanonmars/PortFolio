@@ -4,7 +4,9 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { openDatabase } from '../../../packages/db/src/index.js';
+import { createDatabaseRuntime } from './database-runtime.js';
+import { registerMaintenance } from './maintenance.js';
+import { registerBackups } from './backup.js';
 import { healthSchema } from '../../../packages/shared/src/index.js';
 import { registerSecurity } from './security.js';
 import { registerOrganization } from './organization.js';
@@ -28,6 +30,7 @@ export interface AppOptions {
   allowedOrigins?: readonly string[];
   trustedHosts?: readonly string[];
   attachmentMaxFileBytes?: number;
+  backupMaxBytes?: number;
   attachmentMaxStorageBytes?: number;
   integrationAllowPrivateHttp?: boolean;
   /** Test/compatibility harness only; production serves the canonical board editor. */
@@ -37,6 +40,7 @@ export interface AppOptions {
 export async function createApp(options: AppOptions) {
   for (const key of [
     'attachmentMaxFileBytes',
+    'backupMaxBytes',
     'attachmentMaxStorageBytes',
   ] as const) {
     const value = options[key];
@@ -44,7 +48,8 @@ export async function createApp(options: AppOptions) {
       throw new Error(`${key} must be a positive safe integer`);
     }
   }
-  const db = openDatabase({ dataDir: options.dataDir });
+  const runtime = createDatabaseRuntime(options.dataDir);
+  const db = runtime.db;
   const app = Fastify({
     logger: options.logger
       ? { redact: ['req.headers.authorization', 'req.headers.cookie'] }
@@ -87,7 +92,8 @@ export async function createApp(options: AppOptions) {
       },
     });
   });
-  app.addHook('onClose', async () => db.close());
+  const maintenance = registerMaintenance(app);
+  app.addHook('onClose', async () => runtime.dispose());
   app.addHook('onSend', async (_request, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'same-origin');
@@ -123,6 +129,22 @@ export async function createApp(options: AppOptions) {
     await app.close();
     throw error;
   });
+  try {
+    registerBackups(
+      app,
+      runtime,
+      security.requireAuth,
+      maintenance,
+      attachments,
+      {
+        dataDir: options.dataDir,
+        maxBytes: options.backupMaxBytes,
+      },
+    );
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
   const boards = registerBoards(
     app,
     db,
@@ -139,7 +161,13 @@ export async function createApp(options: AppOptions) {
     registerNetwork(app, db, security.requireAuth);
     registerEquipment(app, db, security.requireAuth);
     registerGrid(app, db, security.requireAuth);
-    registerTransfer(app, db, security.requireAuth, options.dataDir);
+    registerTransfer(
+      app,
+      db,
+      security.requireAuth,
+      options.dataDir,
+      () => runtime.real,
+    );
   }
   const webRoot = resolve(options.webRoot ?? 'dist/web');
   if (existsSync(resolve(webRoot, 'index.html'))) {

@@ -34,7 +34,13 @@ The non-root Docker container has a read-only root filesystem, dropped capabilit
 
 Attachment requests require authentication and exact board/device or board/container/VLAN-entry ownership. Supported uploads are images, PDFs, and bounded UTF-8 reference files; executables, archives, HTML, and SVG uploads are excluded. Images receive bounded processing; original downloads are preserved. File size, storage, count, processing concurrency, and time limits constrain uploads. Deleted files can remain retained for recovery and still count toward storage limits.
 
-Board JSON/SVG exports omit attachment binaries, credentials, and proposal records. Complete backups include private boards, attachment files, accounts, sessions, token digests, and proposal/retry state. Keep each SQLite snapshot with its adjacent attachment directory, protect both, and restore only into a new empty directory. An older backup restores its old token/revocation state; review tokens after recovery. See [backup and restore](INSTALLATION.md#persistent-data-and-backups).
+Board JSON/SVG exports omit attachment binaries, credentials, and proposal records. Complete backups include private boards, attachment files, accounts, password hashes, sessions, API token digests, and proposal/retry state. Browser ZIP backups are **not encrypted**. Runtime environment variables, `.env`, logs, caches, and existing backups are excluded; deployment origin/host configuration stays with the current installation.
+
+Only authenticated browser administrators can create, download, preview, or confirm browser backups/restores; bearer API tokens cannot authorize these operations. Private downloads and session-bound previews expire after 15 minutes. Restore requires review and typing `RESTORE`, creates a verified pre-restore recovery ZIP, replaces persistent application state, and invalidates browser sessions. Sign in with the backup's account/password. The latest three verified recovery ZIPs are retained on-server; keep independent off-server copies as well.
+
+Archive manifests, file hashes, database integrity, migration history, and attachment references are verified before activation. Checksums detect corruption, not the identity of a backup's creator. The default archive and expanded-data limit is 4 GiB. Single-instance coordination permits one server per `DATA_DIR`; direct storage changes by external SQLite/file tools are outside that coordination.
+
+An older backup restores its earlier API token expiration/revocation state; review tokens after recovery. The advanced CLI uses a SQLite snapshot plus an adjacent attachment directory and restores only into a new empty directory. Keep both parts together; CLI pairs are not browser ZIP uploads. See [complete backup and restore](BACKUP_RESTORE.md).
 
 ## Reporting a security issue
 

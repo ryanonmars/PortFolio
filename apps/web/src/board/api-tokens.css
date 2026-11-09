@@ -1,47 +1,31 @@
-.api-tokens-dialog {
-  box-sizing: border-box;
-  width: min(620px, calc(100vw - 24px));
-  max-height: calc(100dvh - 32px);
-  margin: auto;
-  padding: 24px;
-  border: 1px solid #3c5142;
-  border-radius: 12px;
-  background: #101a14;
-  color: #e5eee8;
-  overflow: auto;
-  box-shadow: 0 24px 80px #0008;
-}
-.api-tokens-dialog::backdrop {
-  background: #030b06bd;
-}
-.api-tokens-dialog header,
+.api-tokens-page header,
 .api-tokens-row {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
 }
-.api-tokens-dialog h2,
-.api-tokens-dialog h3 {
+.api-tokens-page h2,
+.api-tokens-page h3 {
   margin: 0 0 8px;
 }
-.api-tokens-dialog p {
+.api-tokens-page p {
   font-size: 13px;
   line-height: 1.5;
   color: #a3b6aa;
 }
-.api-tokens-dialog header p {
+.api-tokens-page header p {
   margin: 0;
 }
-.api-tokens-dialog header > button {
+.api-tokens-page header > button {
   font-size: 22px;
 }
-.api-tokens-dialog form {
+.api-tokens-page form {
   display: grid;
   gap: 14px;
   margin: 20px 0;
 }
-.api-tokens-dialog label {
+.api-tokens-page label {
   display: grid;
   gap: 6px;
   font-size: 13px;
@@ -52,9 +36,9 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.api-tokens-dialog input,
-.api-tokens-dialog select,
-.api-tokens-dialog textarea {
+.api-tokens-page input,
+.api-tokens-page select,
+.api-tokens-page textarea {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -65,7 +49,7 @@
   border-radius: 6px;
   font: inherit;
 }
-.api-tokens-dialog button {
+.api-tokens-page button {
   border: 1px solid #3c5142;
   background: #233b2b;
   color: #e5eee8;
@@ -73,23 +57,23 @@
   padding: 8px 12px;
   cursor: pointer;
 }
-.api-tokens-dialog button:disabled {
+.api-tokens-page button:disabled {
   opacity: 0.55;
   cursor: wait;
 }
-.api-tokens-dialog :focus-visible {
+.api-tokens-page :focus-visible {
   outline: 2px solid #8be5a9;
   outline-offset: 3px;
 }
-.api-tokens-dialog form > button {
+.api-tokens-page form > button {
   justify-self: start;
 }
-.api-tokens-dialog ul {
+.api-tokens-page ul {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-.api-tokens-dialog li {
+.api-tokens-page li {
   border-top: 1px solid #2c3d32;
   padding: 16px 0;
   overflow-wrap: anywhere;
@@ -99,7 +83,7 @@
   color: #a3b6aa;
   flex-shrink: 0;
 }
-.api-tokens-dialog section > h3 {
+.api-tokens-page section > h3 {
   font-size: 15px;
 }
 .api-tokens-secret {
@@ -126,22 +110,19 @@
 .api-tokens-confirm span {
   flex-basis: 100%;
 }
-.api-tokens-dialog [role='alert'] {
+.api-tokens-page [role='alert'] {
   color: #ffb4a9;
 }
 @media (max-width: 500px) {
-  .api-tokens-dialog {
-    padding: 18px;
-  }
   .api-tokens-fields {
     grid-template-columns: 1fr;
   }
-  .api-tokens-dialog input,
-  .api-tokens-dialog select,
-  .api-tokens-dialog textarea {
+  .api-tokens-page input,
+  .api-tokens-page select,
+  .api-tokens-page textarea {
     font-size: 16px;
   }
-  .api-tokens-dialog button {
+  .api-tokens-page button {
     min-height: 44px;
   }
 }

@@ -12,8 +12,7 @@ interface Token {
 }
 const date = (value: number | null) =>
   value === null ? 'Never' : new Date(value).toLocaleString();
-export function ApiTokens({ onClose }: { onClose: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
+export function ApiTokens() {
   const alive = useRef(false);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [name, setName] = useState('');
@@ -28,9 +27,6 @@ export function ApiTokens({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let current = true;
     alive.current = true;
-    const element = dialog.current!;
-    element.showModal();
-    element.querySelector<HTMLInputElement>('input')?.focus();
     void api<{ tokens: Token[] }>('/api-tokens')
       .then((result) => {
         if (current && alive.current) setTokens(result.tokens);
@@ -47,14 +43,8 @@ export function ApiTokens({ onClose }: { onClose: () => void }) {
     return () => {
       current = false;
       alive.current = false;
-      element.close();
     };
   }, []);
-  function close() {
-    alive.current = false;
-    setSecret('');
-    onClose();
-  }
   async function create(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -108,42 +98,8 @@ export function ApiTokens({ onClose }: { onClose: () => void }) {
     }
   }
   return (
-    <dialog
-      className="api-tokens-dialog"
-      ref={dialog}
-      aria-labelledby="api-tokens-title"
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key !== 'Tab') return;
-        const controls = [
-          ...event.currentTarget.querySelectorAll<HTMLElement>(
-            'button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)',
-          ),
-        ].filter((control) => control.getClientRects().length);
-        const first = controls[0],
-          last = controls.at(-1);
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
-      }}
-      onCancel={(event) => {
-        event.preventDefault();
-        close();
-      }}
-    >
-      <header>
-        <div>
-          <h2 id="api-tokens-title">API Tokens</h2>
-          <p>Connect an assistant to your documentation.</p>
-        </div>
-        <button type="button" aria-label="Close API Tokens" onClick={close}>
-          ×
-        </button>
-      </header>
+    <section className="api-tokens-page" aria-labelledby="api-tokens-title">
+      <h2 id="api-tokens-title">API Tokens</h2>
       <p>
         Read-only tokens can view boards and preview proposals. Read and write
         tokens can also apply approved proposals and edits.
@@ -199,7 +155,7 @@ export function ApiTokens({ onClose }: { onClose: () => void }) {
           </label>
           <p role="status">
             Save this token now. It is shown only once and disappears when you
-            close this panel.
+            leave this page.
           </p>
         </section>
       )}
@@ -272,6 +228,6 @@ export function ApiTokens({ onClose }: { onClose: () => void }) {
           </ul>
         )}
       </section>
-    </dialog>
+    </section>
   );
 }

@@ -6,12 +6,12 @@ Use offline JSON authoring to prepare a new board for manual import. Enable conn
 
 ## Install the standalone adapter
 
-Install Node **24.x**. Download `portfolio-mcp-v0.4.0.tar.gz` and its matching `.sha256` file from the [v0.4.0 release](https://github.com/ryanonmars/PortFolio/releases/tag/v0.4.0). Verify the checksum with your platform's SHA-256 tool, then extract and install the adapter dependencies:
+Install Node **24.x**. Download `portfolio-mcp-v0.4.1.tar.gz` and its matching `.sha256` file from the [v0.4.1 release](https://github.com/ryanonmars/PortFolio/releases/tag/v0.4.1). Verify the checksum with your platform's SHA-256 tool, then extract and install the adapter dependencies:
 
 ```sh
-sha256sum -c portfolio-mcp-v0.4.0.tar.gz.sha256
-# On macOS: shasum -a 256 -c portfolio-mcp-v0.4.0.tar.gz.sha256
-tar -xzf portfolio-mcp-v0.4.0.tar.gz
+sha256sum -c portfolio-mcp-v0.4.1.tar.gz.sha256
+# On macOS: shasum -a 256 -c portfolio-mcp-v0.4.1.tar.gz.sha256
+tar -xzf portfolio-mcp-v0.4.1.tar.gz
 cd portfolio-mcp
 npm ci --omit=dev --ignore-scripts
 ```
@@ -101,12 +101,14 @@ The adapter connects to a separately running PortFolio instance through bearer-a
 
 ### Create a token
 
-Sign in to PortFolio, open **Settings → API Tokens**, and create a named token:
+Sign in to PortFolio, open the full-page **Settings → API Tokens**, and create a named token:
 
 - **Read-only** can browse boards and validate proposed new boards.
 - **Read/write** can also apply proposals and submit supported edit commands.
 
 Set an expiry if appropriate and save the secret immediately; it is shown only once. The same panel shows creation, expiration, and last-used times and lets you revoke tokens. Only authenticated browser sessions manage tokens. Bearer tokens cannot create or revoke credentials.
+
+Complete browser backup/restore is a separate browser-session workflow, unavailable to MCP bearer tokens. Restoring a backup signs browser sessions out and restores API token records to their saved state; review token access afterward. See [backup and restore](BACKUP_RESTORE.md).
 
 Tokens inherit the administrator's current shared board access. PortFolio has no per-board token ACL or multi-user sharing model. See [security](SECURITY.md) for storage and transport details.
 

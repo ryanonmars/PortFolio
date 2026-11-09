@@ -22,7 +22,11 @@ import { api, ApiError, sessionRequest } from '../api.js';
 import { AuthForm } from '../forms.js';
 import { BoardEditor, type BoardEditorHandle } from './BoardEditor.js';
 import { BoardObjectTree } from './BoardObjectTree.js';
-import { ApiTokens } from './ApiTokens.js';
+import {
+  SettingsPage,
+  resolveSettingsLocation,
+  type SettingsSection,
+} from './SettingsPage.js';
 import {
   boardPagePath,
   resolveBoardLocation,
@@ -56,7 +60,28 @@ export function BoardStudio() {
     null,
   );
   const [user, setUser] = useState<User | null>(null);
-  const [apiTokensOpen, setApiTokensOpen] = useState(false);
+  const [settings, setSettings] = useState<SettingsSection | null>(() =>
+    resolveSettingsLocation(window.location.pathname),
+  );
+  const settingsRef = useRef(settings);
+  const settingsBusy = useRef(false);
+  const setSettingsBusy = useCallback((value: boolean) => {
+    settingsBusy.current = value;
+  }, []);
+  const [restoreMessage, setRestoreMessage] = useState(
+    () => sessionStorage.getItem('portfolio:restore-message') ?? '',
+  );
+  function selectSettings(value: SettingsSection | null) {
+    settingsRef.current = value;
+    setSettings(value);
+  }
+  function currentPath() {
+    return settingsRef.current
+      ? `/settings/${settingsRef.current}`
+      : activeRef.current
+        ? boardPagePath(activeRef.current.id, pageRef.current)
+        : '/';
+  }
   const [loading, setLoading] = useState(true);
   const [setup, setSetup] = useState<boolean | null>(null);
   const [boards, setBoards] = useState<BoardSummary[]>([]);
@@ -231,6 +256,12 @@ export function BoardStudio() {
     );
   }
   function begin(allowAnonymous = false): number | null {
+    if (settingsBusy.current) {
+      setError(
+        'Wait for the current backup operation to finish, or cancel the upload.',
+      );
+      return null;
+    }
     if (
       !alive.current ||
       transition.current !== null ||
@@ -285,6 +316,7 @@ export function BoardStudio() {
       (activeRef.current?.id === board.id
         ? pageRef.current
         : ({ kind: 'canvas' } as BoardPage));
+    selectSettings(null);
     selectPage(destination);
     activeRef.current = board;
     setActive(board);
@@ -344,6 +376,7 @@ export function BoardStudio() {
     const accepted = await run(async (token) => {
       if (activeRef.current?.id === id) {
         editor.current?.dismissOverlays();
+        selectSettings(null);
         selectPage(nextPage);
         setCollapsed(mobile);
         window.history[push ? 'pushState' : 'replaceState'](
@@ -354,12 +387,38 @@ export function BoardStudio() {
       } else await load(id, token, push, nextPage);
     }, 'Unable to open board');
     if (!accepted && !push && alive.current && activeRef.current)
-      window.history.replaceState(
+      window.history.replaceState(null, '', currentPath());
+  }
+  async function openSettings(section: SettingsSection, push = true) {
+    const accepted = await run(async () => {
+      editor.current?.dismissOverlays();
+      selectSettings(section);
+      setCollapsed(mobile);
+      window.history[push ? 'pushState' : 'replaceState'](
         null,
         '',
-        boardPagePath(activeRef.current.id, pageRef.current),
+        `/settings/${section}`,
       );
+    }, 'Unable to open Settings');
+    if (!accepted && !push)
+      window.history.replaceState(null, '', currentPath());
   }
+  const historyHome = useEffectEvent(() => {
+    if (activeRef.current) {
+      void open(activeRef.current.id, false);
+      return;
+    }
+    void run(async () => {
+      selectSettings(null);
+      setCollapsed(mobile);
+      window.history.replaceState(null, '', '/');
+    }, 'Unable to return to boards').then((accepted) => {
+      if (!accepted) window.history.replaceState(null, '', currentPath());
+    });
+  });
+  const historySettings = useEffectEvent((section: SettingsSection) => {
+    void openSettings(section, false);
+  });
   const historyOpen = useEffectEvent((id: string, nextPage: BoardPage) => {
     void open(id, false, nextPage);
   });
@@ -396,6 +455,12 @@ export function BoardStudio() {
         if (!valid()) return;
         setBoards(result.boards);
         setGroups(result.groups);
+        const settingsRoute = resolveSettingsLocation(window.location.pathname);
+        if (settingsRoute) {
+          selectSettings(settingsRoute);
+          window.history.replaceState(null, '', `/settings/${settingsRoute}`);
+          return;
+        }
         const route = resolveBoardLocation(
           window.location.pathname,
           window.location.search,
@@ -441,7 +506,7 @@ export function BoardStudio() {
         if (valid()) setLoading(false);
       });
     const unauthorized = () => {
-      setApiTokensOpen(false);
+      settingsBusy.current = false;
       ++request.current;
       transition.current = null;
       editor.current?.setLocked(true);
@@ -459,11 +524,17 @@ export function BoardStudio() {
       );
     };
     const history = () => {
+      const section = resolveSettingsLocation(window.location.pathname);
+      if (section) {
+        historySettings(section);
+        return;
+      }
       const route = resolveBoardLocation(
         window.location.pathname,
         window.location.search,
       );
       if (route) historyOpen(route.boardId, route.page);
+      else if (window.location.pathname === '/') historyHome();
     };
     window.addEventListener('portfolio:unauthorized', unauthorized);
     window.addEventListener('popstate', history);
@@ -494,6 +565,13 @@ export function BoardStudio() {
       setError('');
       const data = await index(token);
       if (!current(token) || !data) return;
+      sessionStorage.removeItem('portfolio:restore-message');
+      setRestoreMessage('');
+      const settingsRoute = resolveSettingsLocation(window.location.pathname);
+      if (settingsRoute) {
+        selectSettings(settingsRoute);
+        return;
+      }
       if (!activeRef.current) {
         const destination = resolveBoardLocation(
           window.location.pathname,
@@ -526,7 +604,6 @@ export function BoardStudio() {
     }
   }
   async function logout() {
-    setApiTokensOpen(false);
     await run(async (token) => {
       await api('/auth/logout', 'POST', {});
       if (!current(token)) return;
@@ -536,6 +613,7 @@ export function BoardStudio() {
       setGroups([]);
       clearNavigation();
       selectPage({ kind: 'canvas' });
+      selectSettings(null);
       authUser.current = null;
       setPortClipboard(null);
       setUser(null);
@@ -896,7 +974,10 @@ export function BoardStudio() {
           </button>
         </section>
       ) : (
-        <AuthForm setup={setup} onAuthenticate={authenticate} />
+        <>
+          {restoreMessage && <p role="status">{restoreMessage}</p>}
+          <AuthForm setup={setup} onAuthenticate={authenticate} />
+        </>
       )}
     </div>
   );
@@ -997,17 +1078,12 @@ export function BoardStudio() {
             >
               Add group
             </button>
-            <details>
-              <summary>Settings</summary>
-              <button onClick={() => setApiTokensOpen(true)}>API Tokens</button>
-              <p>
-                Backups: <code>pnpm db:backup</code>
-              </p>
-              <p>
-                Restore to a new data directory with{' '}
-                <code>pnpm db:restore</code>.
-              </p>
-            </details>
+            <button
+              aria-current={settings ? 'page' : undefined}
+              onClick={() => void openSettings('general')}
+            >
+              Settings
+            </button>
             <button onClick={() => void logout()}>Sign out</button>
           </footer>
         </aside>
@@ -1021,27 +1097,31 @@ export function BoardStudio() {
             >
               ☰
             </button>
-            {active && (
-              <button
-                className="board-title"
-                aria-label={
-                  page.kind === 'canvas'
-                    ? 'Rename current board'
-                    : 'View visual board'
-                }
-                onClick={() => {
-                  if (page.kind !== 'canvas') void open(active.id);
-                }}
-                onDoubleClick={() =>
-                  showNameDialog({
-                    type: 'board',
-                    id: active.id,
-                    name: active.name,
-                  })
-                }
-              >
-                {active.name}
-              </button>
+            {settings ? (
+              <strong>Settings</strong>
+            ) : (
+              active && (
+                <button
+                  className="board-title"
+                  aria-label={
+                    page.kind === 'canvas'
+                      ? 'Rename current board'
+                      : 'View visual board'
+                  }
+                  onClick={() => {
+                    if (page.kind !== 'canvas') void open(active.id);
+                  }}
+                  onDoubleClick={() =>
+                    showNameDialog({
+                      type: 'board',
+                      id: active.id,
+                      name: active.name,
+                    })
+                  }
+                >
+                  {active.name}
+                </button>
+              )
             )}
             <span>{user?.username}</span>
             {collapsed && (
@@ -1061,35 +1141,55 @@ export function BoardStudio() {
               </button>
             </div>
           )}
-          {active ? (
-            <BoardEditor
-              key={`${active.id}:${epoch}`}
-              ref={editor}
-              board={active}
-              page={page}
-              onNavigate={(next) => void open(active.id, true, next)}
-              onDocumentChange={documentChanged}
-              disabled={
-                busy ||
-                !user ||
-                (mobile &&
-                  (!collapsed || Boolean(nameDialog) || Boolean(importData)))
-              }
-              clipboard={portClipboard}
-              onClipboardChange={updatePortClipboard}
-              onImport={() => file.current?.click()}
-              onExport={() => void exportJson()}
+          {user && settings && (
+            <SettingsPage
+              section={settings}
+              onNavigate={(section) => void openSettings(section)}
+              onBusyChange={setSettingsBusy}
             />
-          ) : (
-            <div className="board-empty">
-              <p>No board selected.</p>
-              <button
-                onClick={() => showNameDialog({ type: 'new-board', name: '' })}
-              >
-                Add board
-              </button>
-              <button onClick={() => file.current?.click()}>Import JSON</button>
+          )}
+          {active ? (
+            <div
+              className="board-editor-host"
+              hidden={Boolean(settings)}
+              inert={Boolean(settings)}
+            >
+              <BoardEditor
+                key={`${active.id}:${epoch}`}
+                ref={editor}
+                board={active}
+                page={page}
+                onNavigate={(next) => void open(active.id, true, next)}
+                onDocumentChange={documentChanged}
+                disabled={
+                  busy ||
+                  Boolean(settings) ||
+                  !user ||
+                  (mobile &&
+                    (!collapsed || Boolean(nameDialog) || Boolean(importData)))
+                }
+                clipboard={portClipboard}
+                onClipboardChange={updatePortClipboard}
+                onImport={() => file.current?.click()}
+                onExport={() => void exportJson()}
+              />
             </div>
+          ) : (
+            !settings && (
+              <div className="board-empty">
+                <p>No board selected.</p>
+                <button
+                  onClick={() =>
+                    showNameDialog({ type: 'new-board', name: '' })
+                  }
+                >
+                  Add board
+                </button>
+                <button onClick={() => file.current?.click()}>
+                  Import JSON
+                </button>
+              </div>
+            )
           )}
           <input
             ref={file}
@@ -1105,9 +1205,6 @@ export function BoardStudio() {
           />
         </main>
       </div>
-      {user && apiTokensOpen && (
-        <ApiTokens onClose={() => setApiTokensOpen(false)} />
-      )}
       {!user && (
         <div
           className="board-auth-overlay"

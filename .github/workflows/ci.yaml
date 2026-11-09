@@ -61,5 +61,10 @@ jobs:
         env:
           PORTFOLIO_TEST_IMAGE: ghcr.io/ryanonmars/portfolio:local
         run: pnpm exec tsx scripts/test-attachments-container.ts
+      - name: Validate browser backup restore and recovery across runtime identities
+        env:
+          PORTFOLIO_TEST_IMAGE: ghcr.io/ryanonmars/portfolio:local
+          PORTFOLIO_TEST_UPGRADE_IMAGE: ghcr.io/ryanonmars/portfolio:v0.4.0
+        run: pnpm exec tsx scripts/test-settings-backup-container.ts
       - name: Validate numeric container identities, permissions and upgrades
         run: node scripts/test-container-identity.js ghcr.io/ryanonmars/portfolio:local
