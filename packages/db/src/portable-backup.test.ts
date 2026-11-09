@@ -109,7 +109,10 @@ it('round trips retained originals and derivatives with verified real metadata a
   const { dir, db, id } = fixture();
   const path = join(folder(), 'backup.zip');
   const created = await createPortableBackup(db, dir, path);
-  expect(created.applicationVersion).toBe('0.3.0');
+  const application = JSON.parse(
+    readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+  ) as { version: string };
+  expect(created.applicationVersion).toBe(application.version);
   expect(created.attachmentCount).toBe(1);
   expect(created.attachmentBytes).toBe(30);
   const entries = await zipEntries(path);

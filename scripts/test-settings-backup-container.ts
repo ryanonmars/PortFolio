@@ -2,13 +2,14 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chromium, type APIRequestContext } from '@playwright/test';
+import { chromium, expect, type APIRequestContext } from '@playwright/test';
 import { emptyBoardDocument } from '../packages/shared/src/board.js';
 import { attachmentPath } from '../packages/shared/src/attachments.js';
 import sharp from 'sharp';
 
 const image =
   process.env.PORTFOLIO_TEST_IMAGE ?? 'portfolio:settings-backup-local';
+const upgradeImage = process.env.PORTFOLIO_TEST_UPGRADE_IMAGE;
 const prefix = `portfolio-backup-test-${randomUUID().slice(0, 8)}`;
 const containers = new Set<string>();
 const volumes = new Set<string>();
@@ -25,7 +26,12 @@ function stop(name: string) {
   docker('rm', name);
   containers.delete(name);
 }
-async function start(owner: string, volume: string, name: string) {
+async function start(
+  owner: string,
+  volume: string,
+  name: string,
+  runtimeImage = image,
+) {
   docker(
     'run',
     '--detach',
@@ -45,7 +51,7 @@ async function start(owner: string, volume: string, name: string) {
     mount(volume),
     '--publish',
     '127.0.0.1::3088',
-    image,
+    runtimeImage,
   );
   containers.add(name);
   const port = docker('port', name, '3088/tcp').split(':').at(-1)!;
@@ -122,7 +128,7 @@ try {
       `const fs=require('node:fs');fs.chownSync('/data',${uid},${gid});fs.chmodSync('/data',0o700);`,
     );
     const name = `${prefix}-${uid}`;
-    let origin = await start(owner, volume, name);
+    let origin = await start(owner, volume, name, upgradeImage ?? image);
     const context = await browser.newContext();
     let headers = await authenticated(context.request, origin);
     const document = emptyBoardDocument();
@@ -169,11 +175,44 @@ try {
       assert(upload.ok(), await upload.text());
       originals.push({ id: (await upload.json()).attachment.id, bytes });
     }
+    if (upgradeImage) {
+      stop(name);
+      origin = await start(owner, volume, name);
+      headers = await authenticated(context.request, origin);
+      const existing = await context.request.get(
+        origin + `/api/v1/boards/${board.id}`,
+      );
+      assert(existing.ok(), `Upgrade lost board: ${await existing.text()}`);
+      assert.deepEqual((await existing.json()).board.document, document);
+      for (const original of originals) {
+        const bytes = await context.request.get(
+          origin +
+            '/api/v1' +
+            attachmentPath(board.id, ownerKey, original.id, 'original'),
+        );
+        assert(bytes.ok(), `Upgrade lost attachment: ${await bytes.text()}`);
+        assert.deepEqual(await bytes.body(), original.bytes);
+      }
+    }
     const settings = await context.request.get(origin + '/api/v1/settings');
     assert(
       settings.ok(),
       `Settings endpoint missing: ${await settings.text()}`,
     );
+    const metadata = await settings.json();
+    const page = await context.newPage();
+    await page.goto(origin + '/settings/backup');
+    await expect(
+      page.getByRole('heading', { name: 'Backup & Restore', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Download Backup', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('link', { name: 'About', exact: true }).click();
+    await expect(
+      page.getByText(metadata.application.version, { exact: true }),
+    ).toBeVisible();
+    await page.close();
     const prepared = await context.request.post(origin + '/api/v1/backups', {
       headers,
       data: {},
@@ -278,7 +317,7 @@ try {
     await context.close();
     stop(name);
     console.log(
-      `PASS ${owner}: complete ZIP, image/document byte integrity, browser-authenticated restore, session reset, recovery archive, container recreation, editing`,
+      `PASS ${owner}: ${upgradeImage ? `${upgradeImage} upgrade, ` : ''}Settings browser UI and version, complete ZIP, image/document byte integrity, browser-authenticated restore, session reset, recovery archive, container recreation, editing`,
     );
   }
 } finally {
