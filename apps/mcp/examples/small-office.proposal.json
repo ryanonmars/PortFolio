@@ -1,0 +1,45 @@
+{
+  "name": "Example network",
+  "devices": [
+    {
+      "id": "router",
+      "name": "Example router",
+      "ports": [
+        {
+          "id": "router-lan",
+          "name": "LAN",
+          "role": "trunk",
+          "taggedVlans": ["20"]
+        }
+      ]
+    },
+    {
+      "id": "switch",
+      "name": "Example switch",
+      "ports": [{ "id": "switch-uplink", "name": "Uplink" }]
+    }
+  ],
+  "networks": [
+    {
+      "id": "networks",
+      "entries": [
+        {
+          "networkEntryId": "vlan-20",
+          "vlanId": "20",
+          "vlanName": "Example clients",
+          "subnet": "192.0.2.0/24"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "uplink",
+      "sourcePortId": "router-lan",
+      "targetPortId": "switch-uplink"
+    }
+  ],
+  "unresolvedConnections": [
+    "The example source does not identify endpoint cables."
+  ]
+}
