@@ -40,6 +40,7 @@ export const proposalDeviceSchema = z
     managementAddress: text.optional(),
     deviceType: text.optional(),
     notes: text.optional(),
+    documentation: boardPortSchema.shape.customFields.optional(),
   })
   .strict();
 export const proposalNetworkEntrySchema = z
@@ -60,6 +61,7 @@ export const proposalNetworkEntrySchema = z
     addresses: text.optional(),
     pvid: text.optional(),
     customFields: boardPortSchema.shape.customFields.optional(),
+    documentation: boardPortSchema.shape.customFields.optional(),
     notes: text.optional(),
     color: color.optional(),
   })
@@ -152,7 +154,7 @@ function ipv4Number(value: string | undefined): number | undefined {
   if (parts.some((part) => part > 255)) return undefined;
   return parts.reduce((address, part) => address * 256 + part, 0);
 }
-function networkWarnings(
+export function networkWarnings(
   entry: z.infer<typeof proposalNetworkEntrySchema>,
 ): string[] {
   const warnings: string[] = [];
@@ -335,6 +337,7 @@ export function validateBoardProposal(input: unknown): BoardProposalValidation {
       'managementAddress',
       'deviceType',
       'notes',
+      'documentation',
     ] as const)
       if (device[key] !== undefined) properties[key] = device[key];
     const e = element(device, 'device', properties, 160, 120);
@@ -506,12 +509,26 @@ export function validateBoardProposal(input: unknown): BoardProposalValidation {
   const automatic = placements
     .filter((p) => p.x === undefined || p.y === undefined)
     .sort((a, b) => a.group.localeCompare(b.group, 'en') || a.index - b.index);
+  // Match row width to the generated equipment footprint. Small inventories
+  // should not fill a fixed, very wide row just because more space is available.
+  const rowWidth = Math.min(
+    2400,
+    Math.max(
+      640,
+      Math.sqrt(
+        automatic.reduce(
+          (area, { element: e }) => area + (e.width + 80) * (e.height + 80),
+          0,
+        ) * 2,
+      ),
+    ),
+  );
   let cursorX = 0,
     cursorY = 0,
     rowHeight = 0;
   for (const p of automatic) {
     const e = p.element;
-    if (cursorX && cursorX + e.width > 2400) {
+    if (cursorX && cursorX + e.width > rowWidth) {
       cursorX = 0;
       cursorY += rowHeight + 80;
       rowHeight = 0;

@@ -4,6 +4,7 @@ import { boardProposalSchema } from '../../../packages/shared/src/integration.js
 import { integrationEditSchema } from '../../../packages/shared/src/integration-commands.js';
 import { PortfolioClient } from './http-client.js';
 import { authoringGuide } from './guide.js';
+import { registerOfflineTools } from './offline-tools.js';
 
 const id = z
   .string()
@@ -23,13 +24,18 @@ const write = {
   idempotentHint: false,
   openWorldHint: false,
 };
-export function createMcpServer(client: PortfolioClient) {
+export function createMcpServer(client?: PortfolioClient) {
   const server = new McpServer(
     { name: 'portfolio', version: '0.1.0' },
     { instructions: authoringGuide },
   );
+  registerOfflineTools(server);
   async function call(method: 'GET' | 'POST', path: string, body?: unknown) {
     try {
+      if (!client)
+        throw new Error(
+          'Online tools require valid PORTFOLIO_API_URL and PORTFOLIO_API_TOKEN configuration. Check HTTPS/private HTTP and timeout settings, then restart the MCP server. Offline generate, validate and schema tools need no API configuration or token.',
+        );
       return {
         content: [
           {

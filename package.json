@@ -12,6 +12,8 @@
     "dev:web": "vite --config apps/web/vite.config.ts",
     "dev:mcp": "node --import tsx apps/mcp/src/server.ts",
     "start:mcp": "node dist/apps/mcp/src/server.js",
+    "board:json": "node dist/apps/mcp/src/cli.js",
+    "dev:board:json": "node --import tsx apps/mcp/src/cli.ts",
     "build": "tsc -p tsconfig.build.json && vite build --config apps/web/vite.config.ts",
     "start": "node dist/apps/api/src/server.js",
     "format": "prettier --write .",
