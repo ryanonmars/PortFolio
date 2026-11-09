@@ -51,7 +51,7 @@ For existing boards or approved direct writes, create a scoped token in PortFoli
 
 Validation is not write approval. Review the exact new-board preview or existing-board command batch with the user before applying changes. No live scanning or equipment control is provided.
 
-See the [complete setup and API guide](https://github.com/ryanonmars/PortFolio/blob/v0.4.0/docs/MCP.md) and [security notes](https://github.com/ryanonmars/PortFolio/blob/v0.4.0/docs/SECURITY.md).
+See the [complete setup and API guide](https://github.com/ryanonmars/PortFolio/blob/v0.4.1/docs/MCP.md) and [security notes](https://github.com/ryanonmars/PortFolio/blob/v0.4.1/docs/SECURITY.md).
 
 ## License
 

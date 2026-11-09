@@ -1,6 +1,6 @@
 {
   "name": "@portfolio/mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "PortFolio offline board authoring MCP server and JSON CLI",
   "type": "module",

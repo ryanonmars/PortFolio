@@ -6,7 +6,7 @@ Build a clear picture of your network: arrange equipment on a freeform board, do
 
 ![PortFolio board showing synthetic network equipment, VLANs, and physical cables](assets/screenshots/board.png)
 
-[Install](docs/INSTALLATION.md) · [MCP integration](docs/MCP.md) · [Security](docs/SECURITY.md) · [Releases](https://github.com/ryanonmars/PortFolio/releases) · [Contributing](docs/CONTRIBUTING.md)
+[Install](docs/INSTALLATION.md) · [MCP integration](docs/MCP.md) · [Backup & restore](docs/BACKUP_RESTORE.md) · [Security](docs/SECURITY.md) · [Releases](https://github.com/ryanonmars/PortFolio/releases) · [Contributing](docs/CONTRIBUTING.md)
 
 ## Your documentation, on a board
 
@@ -15,7 +15,8 @@ Build a clear picture of your network: arrange equipment on a freeform board, do
 - **Keep network information flexible.** Record VLANs, addresses, DHCP ranges, notes, and custom fields without a required setup sequence. VLAN Spotlight highlights documented memberships.
 - **Look beyond the canvas.** Device and individual VLAN Detail Pages hold reference information, photos, PDFs, and text files. Linked summaries stay synchronized with devices.
 - **Work directly.** Contextual inspectors autosave, while pan, zoom, snapping, multi-selection, and undo/redo support editing on desktop and mobile.
-- **Keep a portable copy.** Export editable board JSON or an SVG image. Complete application backups also preserve attachments and account data.
+- **Keep a portable copy.** Export editable board JSON or an SVG image. Download and restore complete application ZIP backups from Settings, including attachments and account data.
+- **Manage the installation.** Full-page Settings brings together General, Backup & Restore, API Tokens, and About with the running application version.
 
 ![PortFolio Detail Page with synthetic device information and attachments](assets/screenshots/detail.png)
 
@@ -27,8 +28,8 @@ The published image supports Linux **amd64** and **arm64**. Docker Engine with C
 
 ```sh
 mkdir portfolio && cd portfolio
-curl -fsSLO https://raw.githubusercontent.com/ryanonmars/PortFolio/v0.4.0/deployment/compose.yaml
-curl -fsSL https://raw.githubusercontent.com/ryanonmars/PortFolio/v0.4.0/deployment/.env.example -o .env
+curl -fsSLO https://raw.githubusercontent.com/ryanonmars/PortFolio/v0.4.1/deployment/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/ryanonmars/PortFolio/v0.4.1/deployment/.env.example -o .env
 ```
 
 Set `DATA_PATH` in `.env` to an absolute path for your persistent data. On Linux, create it with the runtime user's ownership; the default is `1000:1000`:
@@ -46,7 +47,7 @@ docker compose up -d --wait
 
 Open **http://localhost:3088** on the host, or use the server's private IP or local hostname. Create the administrator account on first use; there are no default credentials. The supplied stack binds port 3088 on all host interfaces. Set `BIND_ADDRESS=127.0.0.1` for access from the host only.
 
-The stack pins `ghcr.io/ryanonmars/portfolio:v0.4.0` and keeps SQLite, attachments, and backups in the directory mounted at `/data`. See [installation and recovery](docs/INSTALLATION.md) for TrueNAS/Dockge, source builds, HTTPS, updates, and troubleshooting.
+The stack pins `ghcr.io/ryanonmars/portfolio:v0.4.1` and keeps SQLite, attachments, and backups in the directory mounted at `/data`. See [installation and recovery](docs/INSTALLATION.md) for TrueNAS/Dockge, source builds, HTTPS, updates, and troubleshooting.
 
 ## Author boards with an agent
 
@@ -59,7 +60,7 @@ Your agent reads source documents using its own authorized tools. PortFolio does
 
 ## Downloads and development
 
-Get the [v0.4.0 release](https://github.com/ryanonmars/PortFolio/releases/tag/v0.4.0), [release notes](docs/releases/v0.4.0.md), or the [published container](https://github.com/ryanonmars/PortFolio/pkgs/container/portfolio). The release includes the standalone Node24 MCP adapter; source installation is documented in [INSTALLATION.md](docs/INSTALLATION.md#run-from-source).
+Get the [v0.4.1 release](https://github.com/ryanonmars/PortFolio/releases/tag/v0.4.1), [release notes](docs/releases/v0.4.1.md), or the [published container](https://github.com/ryanonmars/PortFolio/pkgs/container/portfolio). The release includes the standalone Node24 MCP adapter; source installation is documented in [INSTALLATION.md](docs/INSTALLATION.md#run-from-source).
 
 The application uses React, TypeScript, Fastify, and SQLite. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for local development and validation commands.
 

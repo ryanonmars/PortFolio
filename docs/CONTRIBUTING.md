@@ -52,7 +52,14 @@ MCP_VERSION="$(node -p "require('./package.json').version")"
 PORTFOLIO_MCP_ARCHIVE="$PWD/dist/release/portfolio-mcp-v$MCP_VERSION.tar.gz" pnpm test:package:mcp
 ```
 
-Use [MCP.md](MCP.md) to exercise offline generation and connected review/apply behavior. No automated test should use a real network device or private user data.
+Use [MCP.md](MCP.md) to exercise offline generation and connected review/apply behavior. No automated test should use a real network device or private user data. Backup/restore changes must use isolated synthetic data directories; see [backup and recovery behavior](BACKUP_RESTORE.md) for the operational contract.
+
+The Docker backup matrix checks both runtime identities, complete restore, attachment bytes, and container recreation using new temporary volumes. To include the v0.4.0 upgrade path:
+
+```sh
+docker compose build
+PORTFOLIO_TEST_IMAGE=ghcr.io/ryanonmars/portfolio:local PORTFOLIO_TEST_UPGRADE_IMAGE=ghcr.io/ryanonmars/portfolio:v0.4.0 pnpm exec tsx scripts/test-settings-backup-container.ts
+```
 
 ## Changes and pull requests
 
