@@ -7,6 +7,7 @@
   },
   "include": [
     "apps/api/src/**/*.ts",
+    "apps/mcp/src/**/*.ts",
     "packages/**/*.ts",
     "scripts/database.ts",
     "scripts/seed.ts"

@@ -3,16 +3,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { HTTPMethods } from 'fastify';
-import { createApp } from '../../apps/api/src/app.js';
+import { createApp, type AppOptions } from '../../apps/api/src/app.js';
 import { openDatabase } from '../../packages/db/src/index.js';
 import type { Site, Workspace } from '../../packages/shared/src/index.js';
 
-export async function apiFixture(enableLegacyEditor = true) {
+export async function apiFixture(
+  enableLegacyEditor = true,
+  options: Partial<Omit<AppOptions, 'dataDir'>> = {},
+) {
   const dataDir = mkdtempSync(join(tmpdir(), 'portfolio-m2-'));
   let app = await createApp({
     dataDir,
     webRoot: join(dataDir, 'no-web'),
     enableLegacyEditor,
+    ...options,
   });
   const db = openDatabase({ dataDir });
   let cookie = '';
@@ -84,6 +88,7 @@ export async function apiFixture(enableLegacyEditor = true) {
         dataDir,
         webRoot: join(dataDir, 'no-web'),
         enableLegacyEditor,
+        ...options,
       });
     },
     async close() {

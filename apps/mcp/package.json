@@ -1,0 +1,10 @@
+{
+  "name": "@portfolio/mcp",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node --import tsx src/server.ts",
+    "start": "node ../../dist/apps/mcp/src/server.js"
+  }
+}

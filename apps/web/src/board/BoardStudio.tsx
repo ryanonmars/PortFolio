@@ -22,6 +22,7 @@ import { api, ApiError, sessionRequest } from '../api.js';
 import { AuthForm } from '../forms.js';
 import { BoardEditor, type BoardEditorHandle } from './BoardEditor.js';
 import { BoardObjectTree } from './BoardObjectTree.js';
+import { ApiTokens } from './ApiTokens.js';
 import {
   boardPagePath,
   resolveBoardLocation,
@@ -55,6 +56,7 @@ export function BoardStudio() {
     null,
   );
   const [user, setUser] = useState<User | null>(null);
+  const [apiTokensOpen, setApiTokensOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [setup, setSetup] = useState<boolean | null>(null);
   const [boards, setBoards] = useState<BoardSummary[]>([]);
@@ -439,6 +441,7 @@ export function BoardStudio() {
         if (valid()) setLoading(false);
       });
     const unauthorized = () => {
+      setApiTokensOpen(false);
       ++request.current;
       transition.current = null;
       editor.current?.setLocked(true);
@@ -523,6 +526,7 @@ export function BoardStudio() {
     }
   }
   async function logout() {
+    setApiTokensOpen(false);
     await run(async (token) => {
       await api('/auth/logout', 'POST', {});
       if (!current(token)) return;
@@ -995,6 +999,7 @@ export function BoardStudio() {
             </button>
             <details>
               <summary>Settings</summary>
+              <button onClick={() => setApiTokensOpen(true)}>API Tokens</button>
               <p>
                 Backups: <code>pnpm db:backup</code>
               </p>
@@ -1100,6 +1105,9 @@ export function BoardStudio() {
           />
         </main>
       </div>
+      {user && apiTokensOpen && (
+        <ApiTokens onClose={() => setApiTokensOpen(false)} />
+      )}
       {!user && (
         <div
           className="board-auth-overlay"

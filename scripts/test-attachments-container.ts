@@ -34,7 +34,6 @@ async function start(dataDir = '/data') {
   docker([
     'run',
     '--detach',
-    '--rm',
     '--name',
     container,
     ...runtime,
@@ -60,6 +59,8 @@ async function start(dataDir = '/data') {
 function stop() {
   if (running) {
     docker(['stop', container]);
+    // Explicit removal is synchronous; --rm can retain the name briefly after stop.
+    docker(['rm', container]);
     running = false;
   }
 }
