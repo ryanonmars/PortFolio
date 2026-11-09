@@ -26,7 +26,7 @@ const write = {
 };
 export function createMcpServer(client?: PortfolioClient) {
   const server = new McpServer(
-    { name: 'portfolio', version: '0.1.0' },
+    { name: 'portfolio', version: '0.4.0' },
     { instructions: authoringGuide },
   );
   registerOfflineTools(server);

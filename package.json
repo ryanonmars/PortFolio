@@ -1,6 +1,6 @@
 {
   "name": "portfolio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.28.2",
@@ -25,7 +25,10 @@
     "db:migrate": "node --import tsx scripts/database.ts migrate",
     "db:backup": "node --import tsx scripts/database.ts backup",
     "db:restore": "node --import tsx scripts/database.ts restore",
-    "db:seed": "node --import tsx scripts/seed.ts"
+    "db:seed": "node --import tsx scripts/seed.ts",
+    "build:mcp": "tsc -p tsconfig.mcp.json",
+    "package:mcp": "pnpm build:mcp && node scripts/package-mcp.mjs",
+    "test:package:mcp": "node --test scripts/package-mcp.test.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

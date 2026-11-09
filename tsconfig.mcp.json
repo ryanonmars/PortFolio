@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "sourceMap": false
+  },
+  "include": ["apps/mcp/src/server.ts", "apps/mcp/src/cli.ts"]
+}

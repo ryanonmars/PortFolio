@@ -146,3 +146,47 @@ jobs:
           }
           NODE
           printf 'Published %s@%s for linux/amd64 and linux/arm64.\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish standalone MCP and GitHub release assets
+    needs: [revision, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+      - run: npm install --global pnpm@10.28.2
+      - run: pnpm install --frozen-lockfile
+      - name: Build and test the portable MCP distribution
+        run: |
+          pnpm package:mcp
+          MCP_VERSION="$(node -p "require('./package.json').version")"
+          PORTFOLIO_MCP_ARCHIVE="$PWD/dist/release/portfolio-mcp-v$MCP_VERSION.tar.gz" pnpm test:package:mcp
+      - name: Prepare deployment downloads and checksums
+        run: |
+          cp deployment/compose.yaml dist/release/portfolio-compose.yaml
+          cp deployment/.env.example dist/release/portfolio.env.example
+          cd dist/release
+          sha256sum portfolio-mcp-*.tar.gz portfolio-compose.yaml portfolio.env.example > SHA256SUMS
+      - name: Create the versioned GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test -f "docs/releases/$RELEASE_TAG.md"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'This GitHub release already exists; refusing to overwrite it.' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --latest --title "PortFolio $RELEASE_TAG" \
+            --notes-file "docs/releases/$RELEASE_TAG.md" \
+            dist/release/portfolio-mcp-*.tar.gz dist/release/portfolio-mcp-*.sha256 \
+            dist/release/portfolio-compose.yaml dist/release/portfolio.env.example \
+            dist/release/SHA256SUMS

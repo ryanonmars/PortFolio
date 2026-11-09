@@ -38,6 +38,11 @@ jobs:
         run: pnpm test
       - name: Production backend and frontend build
         run: pnpm build
+      - name: Build and verify the independently installable MCP package
+        run: |
+          pnpm package:mcp
+          MCP_VERSION="$(node -p "require('./package.json').version")"
+          PORTFOLIO_MCP_ARCHIVE="$PWD/dist/release/portfolio-mcp-v$MCP_VERSION.tar.gz" pnpm test:package:mcp
       - name: Install browser engines and system dependencies
         run: pnpm exec playwright install --with-deps chromium webkit
       - name: Desktop and mobile browser tests

@@ -1,0 +1,22 @@
+{
+  "name": "@portfolio/mcp",
+  "version": "0.4.0",
+  "private": true,
+  "description": "PortFolio offline board authoring MCP server and JSON CLI",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "bin": {
+    "portfolio-mcp": "bin/portfolio-mcp.js",
+    "portfolio-board-json": "bin/portfolio-board-json.js"
+  },
+  "scripts": {
+    "start": "node bin/portfolio-mcp.js",
+    "board:json": "node bin/portfolio-board-json.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  }
+}
