@@ -551,6 +551,7 @@ it.each([false, true])(
   },
 );
 
+// Four full recovery/rollback cycles spawn multiple isolated verification workers.
 it('retains at most three verified recovery archives even when activation repeatedly fails', async () => {
   const f = await fixture();
   const archive = await bytes(f);
@@ -587,7 +588,7 @@ it('retains at most three verified recovery archives even when activation repeat
     syncBuiltinESMExports();
   }
   expect(readdirSync(join(f.dataDir, 'backups', 'recovery'))).toHaveLength(3);
-});
+}, 30_000);
 
 it('reports successful activation even if disposable preview cleanup must be retried at startup', async () => {
   const f = await fixture();
